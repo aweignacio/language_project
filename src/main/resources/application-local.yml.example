@@ -1,0 +1,17 @@
+# 本機開發設定範本
+#
+# 使用方式：複製此檔為 application-local.yml，並填入實際值。
+# application-local.yml 已列入 .gitignore，不會進入版本控制。
+#
+# SQL Server 容器的啟動方式與連線資訊，見 C:\Tim\docker\README.md
+
+spring:
+  datasource:
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    url: jdbc:sqlserver://localhost:1433;databaseName=language_project;encrypt=false
+    username: sa
+    password: 請填入資料庫密碼
+
+  ai:
+    openai:
+      api-key: 請填入 OpenAI API Key

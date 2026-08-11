@@ -44,12 +44,23 @@
 | 項目 | 選擇 | 說明 |
 |---|---|---|
 | 框架 | Spring Boot 4.1.0 / Java 21 | 既有骨架 |
-| 資料庫 | MySQL | `compose.yaml` 已有 |
-| 翻譯 | OpenAI Chat API | pom 需將 `spring-ai-starter-model-anthropic` 換為 `spring-ai-starter-model-openai` |
+| 資料庫 | **SQL Server 2022** | Docker 容器，設定位於 `C:\Tim\docker\compose.yaml`（共用服務，不屬於本專案） |
+| 翻譯 | OpenAI Chat API | `spring-ai-starter-model-openai` |
 | 語音 | OpenAI TTS | 包成介面，可抽換為 Google / Azure |
 | 前端 | 靜態 HTML + JavaScript | 不使用模板引擎，直接呼叫 REST API |
 | 音檔儲存 | 伺服器本機資料夾 | DB 只存檔名，不存二進位內容 |
-| 測試資料庫 | H2 | 已在 pom |
+| 測試資料庫 | H2 | 僅測試範圍使用 |
+| 設定檔格式 | YAML | `application.yml` 為通用設定；帳密與 API Key 置於 `application-local.yml`，已排除於版本控制之外 |
+
+### 資料庫環境
+
+SQL Server 容器由所有專案共用，設定與備份腳本位於 `C:\Tim\docker\`，不納入本專案版本控制。連線資訊與操作方式見該目錄的 `README.md`。
+
+本專案使用的資料庫為 `language_project`，容器位址 `localhost:1433`。
+
+> ⚠️ **容器 collation 為 `SQL_Latin1_General_CP1_CI_AS`。所有存放文字的欄位必須使用 `NVARCHAR`。**
+> `VARCHAR` 無法保存非 ASCII 字元，中文、泰文、拼音聲調符號存入後會全部變成 `?`，**且寫入時不會報錯**。
+> 實測：泰文首字存入 `NVARCHAR` 得到字碼 3626（正確），存入 `VARCHAR` 得到 63（即 `?`，資料已損毀）。
 
 ### 成本結構
 
@@ -114,14 +125,14 @@ Key 為使用者輸入的原始字串，不區分單字或句子。**只有此�
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `id` | BIGINT | 主鍵（自增） |
-| `source_text` | VARCHAR(100) | 使用者輸入原文，**UNIQUE 索引** |
-| `thai_text` | VARCHAR | 整句泰文 |
-| `romanization` | VARCHAR | 整句羅馬拼音 |
-| `audio_file` | VARCHAR **(可為 null)** | 音檔檔名，TTS 失敗時為 null |
-| `created_at` / `updated_at` | DATETIME | |
+| `id` | BIGINT IDENTITY(1,1) | 主鍵（自增） |
+| `source_text` | **NVARCHAR(100)** | 使用者輸入原文，**UNIQUE 索引** |
+| `thai_text` | **NVARCHAR(500)** | 整句泰文 |
+| `romanization` | **NVARCHAR(500)** | 整句羅馬拼音 |
+| `audio_file` | VARCHAR(100) **(可為 null)** | 音檔檔名，TTS 失敗時為 null。檔名為系統產生的 ASCII 字串，故用 `VARCHAR` |
+| `created_at` / `updated_at` | DATETIME2 | |
 
-**為何使用代理主鍵而非 `source_text`**：有子表需外鍵參考，中文字串當外鍵佔用空間大（約 15 倍）且 join 較慢；InnoDB 聚簇索引會使所有二級索引夾帶主鍵值；未來若要正規化輸入（去空白、全形轉半形），修改自然主鍵將牽動所有外鍵。
+**為何使用代理主鍵而非 `source_text`**：有子表需外鍵參考，中文字串當外鍵佔用空間大（`NVARCHAR` 每字 2 bytes，約 15 倍於 `BIGINT`）且 join 較慢；叢集索引鍵會夾帶進所有非叢集索引；未來若要正規化輸入（去空白、全形轉半形），修改自然主鍵將牽動所有外鍵。
 
 ### 5.2 `translation_segment` — 逐詞拆解
 
@@ -131,9 +142,9 @@ Key 為使用者輸入的原始字串，不區分單字或句子。**只有此�
 |---|---|---|
 | `query_id` | BIGINT | 主鍵之一，對應 `translation_query.id` |
 | `seq_no` | INT | 主鍵之一，顯示順序 |
-| `chinese_text` | VARCHAR | 中文詞 |
-| `thai_text` | VARCHAR | 泰文詞 |
-| `romanization` | VARCHAR | 拼音 |
+| `chinese_text` | **NVARCHAR(50)** | 中文詞 |
+| `thai_text` | **NVARCHAR(100)** | 泰文詞 |
+| `romanization` | **NVARCHAR(100)** | 拼音 |
 
 不使用 JSON 欄位儲存拆解結果，以便日後統計與查詢。同一個詞可在不同句子的 segment 中重複出現，這是正確的 — segment 記錄的是「該句話如何拆解」。
 
@@ -143,12 +154,12 @@ Key 為使用者輸入的原始字串，不區分單字或句子。**只有此�
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `id` | BIGINT | 主鍵 |
-| `chinese_text` | VARCHAR | 中文詞，**UNIQUE 索引** |
-| `thai_text` | VARCHAR | 泰文 |
-| `romanization` | VARCHAR | 拼音 |
-| `source_type` | VARCHAR | `VocabularySourceTypeEnum`：`SEGMENT` / `DIRECT`，判定規則見下 |
-| `created_at` / `updated_at` | DATETIME | |
+| `id` | BIGINT IDENTITY(1,1) | 主鍵 |
+| `chinese_text` | **NVARCHAR(50)** | 中文詞，**UNIQUE 索引** |
+| `thai_text` | **NVARCHAR(100)** | 泰文 |
+| `romanization` | **NVARCHAR(100)** | 拼音 |
+| `source_type` | VARCHAR(20) | `VocabularySourceTypeEnum`：`SEGMENT` / `DIRECT`，判定規則見下 |
+| `created_at` / `updated_at` | DATETIME2 | |
 
 **`source_type` 判定規則：**
 
@@ -164,29 +175,36 @@ Key 為使用者輸入的原始字串，不區分單字或句子。**只有此�
 
 | 欄位 | 型別 | 說明 |
 |---|---|---|
-| `id` | BIGINT | 主鍵 |
+| `id` | BIGINT IDENTITY(1,1) | 主鍵 |
 | `query_id` | BIGINT (可為 null) | 對應的查詢，可追溯 |
-| `provider` | VARCHAR | `AiProviderEnum`：`OPENAI` / `ANTHROPIC` / `GOOGLE` / `AZURE` |
-| `service_type` | VARCHAR | `AiServiceTypeEnum`：`TRANSLATION` / `SPEECH` |
-| `model_name` | VARCHAR | 實際使用的模型名稱 |
-| `unit_type` | VARCHAR | `UsageUnitTypeEnum`：`TOKEN` / `CHARACTER` |
+| `provider` | VARCHAR(20) | `AiProviderEnum`：`OPENAI` / `ANTHROPIC` / `GOOGLE` / `AZURE` |
+| `service_type` | VARCHAR(20) | `AiServiceTypeEnum`：`TRANSLATION` / `SPEECH` |
+| `model_name` | VARCHAR(100) | 實際使用的模型名稱 |
+| `unit_type` | VARCHAR(20) | `UsageUnitTypeEnum`：`TOKEN` / `CHARACTER` |
 | `input_units` | BIGINT | 輸入用量 |
 | `output_units` | BIGINT | 輸出用量（TTS 為 0） |
 | `input_unit_price` | DECIMAL(12,8) | 呼叫當下的輸入單價 |
 | `output_unit_price` | DECIMAL(12,8) | 呼叫當下的輸出單價 |
 | `cost_amount` | DECIMAL(12,6) | 本次費用 |
 | `currency` | CHAR(3) | 固定 `USD`，**不存台幣**（匯率浮動，統計時再換算） |
-| `is_success` | BOOLEAN | 呼叫是否成功（失敗仍可能計費，且可觀察失敗率） |
-| `created_at` | DATETIME | **需索引**，供期間統計 |
+| `is_success` | **BIT** | 呼叫是否成功（SQL Server 無 boolean 型別）。失敗仍可能計費，且可觀察失敗率 |
+| `created_at` | DATETIME2 | **需索引**，供期間統計 |
+
+此表欄位皆為 ASCII 內容（Enum 名稱、模型代號），故使用 `VARCHAR` 即可，不需 `NVARCHAR`。
 
 **金額欄位一律使用 `DECIMAL`，Java 端對應 `BigDecimal`，禁止使用 `double` / `float`。**
 
-**需儲存呼叫當下的單價**，價格調整後歷史紀錄仍可驗算。單價本身設定於 `application.properties`，不另建價格表：
+**需儲存呼叫當下的單價**，價格調整後歷史紀錄仍可驗算。單價本身設定於 `application.yml`，不另建價格表：
 
-```properties
-ai.openai.translation.input-price=0.000005
-ai.openai.translation.output-price=0.000015
-ai.openai.speech.price=0.000015
+```yaml
+ai:
+  pricing:
+    openai:
+      translation:
+        input-price: 0.000005
+        output-price: 0.000015
+      speech:
+        price: 0.000015
 ```
 
 此表存放的 `token` 為 **AI 用量單位**，與認證用的 token 無關。API Key 不得寫入資料庫。
@@ -327,16 +345,18 @@ public class TranslationSegment {
     @Column(name = "seq_no")
     private Integer seqNo;
 
-    @Column(name = "chinese_text")
+    @Column(name = "chinese_text", columnDefinition = "NVARCHAR(50)")
     private String chineseText;
 
-    @Column(name = "thai_text")
+    @Column(name = "thai_text", columnDefinition = "NVARCHAR(100)")
     private String thaiText;
 
-    @Column(name = "romanization")
+    @Column(name = "romanization", columnDefinition = "NVARCHAR(100)")
     private String romanization;
 }
 ```
+
+**所有存放文字的欄位都必須標註 `columnDefinition = "NVARCHAR(n)"`。** 若省略，Hibernate 對 SQL Server 產生的預設型別為 `VARCHAR`，中文與泰文會靜默損毀。
 
 ### 8.3 查詢寫法
 
@@ -479,9 +499,21 @@ public class GlobalExceptionHandler {
 
 ## 12. 待辦與待確認事項
 
+### 已完成
+
 | 項目 | 說明 |
 |---|---|
+| 版本控制 | git repo 已建立，主分支 `main`，已有初始提交 |
+| 資料庫環境 | SQL Server 2022 容器已建立於 `C:\Tim\docker`（群組 `shared-db`），含資料 volume 與備份掛載；`language_project` 資料庫已建立 |
+| 備份機制 | `C:\Tim\docker\backup-db.ps1`，備份檔存於 `C:\Tim\docker\mssql-backup\`，已實測通過 |
+| pom.xml 調整 | 已移除 MySQL、Redis、session、docker-compose 相關依賴；Anthropic 已替換為 `spring-ai-starter-model-openai` |
+| 設定檔 | `application.properties` 已改為 `application.yml`；帳密與 API Key 置於 `application-local.yml`（已排除於版本控制） |
+
+### 待辦
+
+| 項目 | 說明 |
+|---|---|
+| OpenAI API Key | 尚未申請。`application-local.yml` 目前填的是佔位字串，實作翻譯與語音功能前需填入實際金鑰 |
 | 泰語 TTS 品質試聽 | OpenAI 語音以英文為主，Google / Azure 有專屬 `th-TH` 語音。建議於 `openai.fm`、Google Cloud TTS 產品頁、Azure Speech Studio 分別試聽同一句泰文後再定案。因語音服務已抽成介面，日後更換不影響其他程式 |
-| 外部服務單價查證 | 實作前需查證 OpenAI 官方最新定價，填入 `application.properties` |
-| pom.xml 調整 | 將 `spring-ai-starter-model-anthropic` 替換為 `spring-ai-starter-model-openai` |
-| 版本控制 | 專案目前尚未初始化 git，需先 `git init` 才能依規範進行分支與提交 |
+| 外部服務單價查證 | 實作前需查證 OpenAI 官方最新定價，填入 `application.yml` 的 `ai.pricing` 區塊 |
+| 資料表建立方式 | `spring.jpa.hibernate.ddl-auto` 設為 `none`，資料表需以 SQL 腳本明確建立（確保 `NVARCHAR` 型別正確），腳本尚未撰寫 |
