@@ -1,0 +1,63 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### 機密設定（絕不可進版控）###
+application-local.properties
+application-local.yml
+application-local.yaml
+application-secret*.properties
+application-secret*.yml
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.jks
+
+### 執行時產生的資料 ###
+# TTS 產生的音檔，屬於執行結果而非原始碼
+audio/
+/data/
+logs/
+*.log
+
+### H2 本機資料庫檔 ###
+*.db
+*.mv.db
+*.trace.db
+
+### 作業系統雜項 ###
+.DS_Store
+Thumbs.db
+desktop.ini
