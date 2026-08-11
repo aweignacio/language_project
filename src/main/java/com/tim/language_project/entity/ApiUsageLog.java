@@ -1,0 +1,81 @@
+package com.tim.language_project.entity;
+
+import com.tim.language_project.enums.AiProviderEnum;
+import com.tim.language_project.enums.AiServiceTypeEnum;
+import com.tim.language_project.enums.UsageUnitTypeEnum;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+/**
+ * One external service call with its usage and cost. Audit data — kept even when
+ * the referenced query is deleted, hence no foreign key constraint.
+ */
+@Entity
+@Table(name = "api_usage_log")
+@Getter
+@Setter
+@NoArgsConstructor
+public class ApiUsageLog {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
+    private Long id;
+
+    /** Loose reference to the query this call served. Null when unknown. */
+    @Column(name = "query_id")
+    private Long queryId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "provider", length = 20, nullable = false)
+    private AiProviderEnum provider;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "service_type", length = 20, nullable = false)
+    private AiServiceTypeEnum serviceType;
+
+    @Column(name = "model_name", length = 100, nullable = false)
+    private String modelName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "unit_type", length = 20, nullable = false)
+    private UsageUnitTypeEnum unitType;
+
+    @Column(name = "input_units", nullable = false)
+    private Long inputUnits;
+
+    /** Always zero for speech synthesis. */
+    @Column(name = "output_units", nullable = false)
+    private Long outputUnits;
+
+    /** Unit price at the time of the call, so historical rows stay auditable. */
+    @Column(name = "input_unit_price", precision = 12, scale = 8, nullable = false)
+    private BigDecimal inputUnitPrice;
+
+    @Column(name = "output_unit_price", precision = 12, scale = 8, nullable = false)
+    private BigDecimal outputUnitPrice;
+
+    @Column(name = "cost_amount", precision = 12, scale = 6, nullable = false)
+    private BigDecimal costAmount;
+
+    @Column(name = "currency", columnDefinition = "CHAR(3)", insertable = false, updatable = false)
+    private String currency;
+
+    @Column(name = "is_success", nullable = false)
+    private Boolean success;
+
+    @Column(name = "created_at", insertable = false, updatable = false)
+    private LocalDateTime createdAt;
+}
