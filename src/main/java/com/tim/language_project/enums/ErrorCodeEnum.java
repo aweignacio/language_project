@@ -14,6 +14,10 @@ public enum ErrorCodeEnum {
     INPUT_TOO_LONG(HttpStatus.BAD_REQUEST, "輸入內容不可超過 100 字"),
     INPUT_UNSUPPORTED_CONTENT(HttpStatus.BAD_REQUEST, "輸入內容無法翻譯"),
 
+    REQUEST_INVALID(HttpStatus.BAD_REQUEST, "請求內容格式錯誤"),
+    RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "找不到指定的資源"),
+    METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "不支援的請求方式"),
+
     TRANSLATION_SERVICE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "翻譯服務暫時無法使用"),
     TRANSLATION_SERVICE_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "翻譯服務回應逾時"),
     TRANSLATION_RESPONSE_INVALID(HttpStatus.BAD_GATEWAY, "翻譯服務回傳資料格式錯誤"),
