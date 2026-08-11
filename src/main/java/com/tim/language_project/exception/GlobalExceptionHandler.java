@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.util.UUID;
 
 /**
- * Translates exceptions into the uniform error payload.
+ * 把各種例外轉換成統一的錯誤回應格式。
  */
 @Slf4j
 @RestControllerAdvice
@@ -30,18 +30,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Last-resort handler. The original exception message is never returned to the
-     * caller — it may contain connection strings, file paths, or credential fragments.
+     * 兜底處理器，接住上面沒人認領的例外。
+     * 原始的例外訊息絕對不回傳給前端 ——
+     * 裡面可能含有連線字串、檔案路徑或金鑰片段。
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponseDto> handleUnexpectedException(Exception exception) {
         String traceId = newTraceId();
 
-        // Exceptions Spring raises for a malformed request — unknown path, unsupported
-        // method, unreadable body — all implement ErrorResponse and already carry the
-        // status the caller should see. Keeping that status stops a caller mistake from
-        // being reported as a server failure. Logged without a stack trace, since a
-        // mistyped URL is not a defect worth an error-level entry.
+        // Spring 自己為「請求有問題」丟出的例外 —— 網址不存在、HTTP 方法不支援、
+        // 請求內容讀不懂 —— 都實作了 ErrorResponse，身上已經帶著該回的狀態碼。
+        // 這裡沿用它說的狀態碼，才不會把「使用者打錯」講成「伺服器壞掉」。
+        // 這種情況只記 warn 且不印堆疊，網址打錯不值得留一整篇錯誤紀錄。
         if (exception instanceof ErrorResponse errorResponse) {
             HttpStatusCode statusCode = errorResponse.getStatusCode();
             ErrorCodeEnum requestErrorCode = resolveRequestErrorCode(statusCode);
@@ -60,8 +60,8 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Maps the status Spring already decided onto this application's error code, so
-     * the caller sees one uniform payload whoever raised the exception.
+     * 把 Spring 已經決定好的狀態碼，對應到本專案自己的錯誤碼。
+     * 這樣不管例外是誰丟的，前端收到的格式都一樣。
      */
     private ErrorCodeEnum resolveRequestErrorCode(HttpStatusCode statusCode) {
         if (statusCode.isSameCodeAs(HttpStatus.NOT_FOUND)) {

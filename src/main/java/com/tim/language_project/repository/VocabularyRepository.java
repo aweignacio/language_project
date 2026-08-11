@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Data access for the accumulated Chinese to Thai dictionary.
+ * 累積下來的中泰單字庫資料存取。
  */
 public interface VocabularyRepository extends JpaRepository<Vocabulary, Long> {
 

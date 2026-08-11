@@ -4,8 +4,8 @@ import lombok.Getter;
 import org.springframework.http.HttpStatus;
 
 /**
- * All business error codes with their HTTP status and user-facing message.
- * The global exception handler maps these directly onto the response.
+ * 集中定義所有錯誤碼，每個錯誤碼綁著自己的 HTTP 狀態與給使用者看的訊息。
+ * 全域例外處理器直接照這裡的定義組出回應，不另外判斷。
  */
 @Getter
 public enum ErrorCodeEnum {

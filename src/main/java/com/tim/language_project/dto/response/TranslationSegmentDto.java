@@ -1,7 +1,7 @@
 package com.tim.language_project.dto.response;
 
 /**
- * One word of a segmentation, as returned to the caller.
+ * 逐詞對照裡的其中一個詞，用來回傳給前端。
  */
 public record TranslationSegmentDto(
         Integer seqNo,

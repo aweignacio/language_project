@@ -27,11 +27,13 @@
 | **Task 1：建立 Enum** | 完成，分支 `feat/enums`（commit `8ff54f9`） |
 | **Task 2：建立 Entity** | 完成，分支 `feat/entities`（commit `9f2d7ae`） |
 | **Task 3：DTO 與 Repository** | 完成，分支 `feat/repositories`（commit `e37003f`），測試 5 項全過 |
+| **Task 4：錯誤處理骨架** | 完成，分支 `feat/error_handle`（commit `784b34b`、`72542d9`），測試 9 項全過 |
 
-**下一個要做的是 Task 4。**
+**下一個要做的是 Task 5。**
 
 **分支現況：** 逐層疊加，皆未推上 origin、未合併回 main。
-`main` → `feat/enums` → `feat/entities` → `feat/repositories`
+`main` → `feat/enums` → `feat/entities` → `feat/repositories` → `feat/error_handle`
+（Task 4 分支名為 `feat/error_handle`，與本文件寫的 `feat/error-handling` 不同，以實際分支為準。）
 
 ### 執行過程中發現的偏離（本文件其餘部分尚未修正，實作時以此處為準）
 
@@ -57,6 +59,23 @@
    Task 6 Step 4 與 Task 10 Step 4 的「手動驗證」在補上真實金鑰前無法執行，
    需由 Awei 自行完成。自動化測試本來就禁止呼叫真實 API，不受影響。
 
+5. **Task 4 的 `GlobalExceptionHandler` 有缺陷，已於 commit `72542d9` 修正。**
+   `@ExceptionHandler(Exception.class)` 會攔下 Spring 自己丟的例外，
+   導致「網址不存在」「HTTP 方法不支援」被回報成 500。
+   修法：先判斷 `exception instanceof ErrorResponse`，是的話沿用它身上的狀態碼，
+   只有問不出狀態碼的例外才回 500。新增 `RESOURCE_NOT_FOUND`、`METHOD_NOT_ALLOWED`、
+   `REQUEST_INVALID` 三個錯誤碼對應。
+   **Task 9 撰寫 Controller 測試時，請沿用既有的 `GlobalExceptionHandlerTest`**
+   （已含 4 個測試與一個測試用假 Controller），不要重寫。
+
+6. **註解語言改為繁體中文**（Awei 於 2026-08-11 要求，全域 CLAUDE.md 已同步修改）。
+   Task 1-4 既有程式的註解已全部改寫完成。
+   本文件 Task 5 以後的程式碼範例仍是英文註解，實作時一律改寫成中文。
+
+7. **`mvnw test` 出現 `Unresolved compilation problem` 時，改用 `mvnw clean test`。**
+   IDE 會在背景把沒跑 Lombok 的壞 class 寫進 `target/`，Maven 判定「不用重編」而沿用，
+   產生看似無法解釋的失敗。IDE 在 Lombok 相關程式上標的紅字同樣不是真錯誤，一律以 Maven 為準。
+
 ### 執行方式
 
 Awei 要求：**每個 Task 完成後停下來回報，經他確認後才進行下一個 Task。**
@@ -73,7 +92,7 @@ Awei 要求：**每個 Task 完成後停下來回報，經他確認後才進行�
 4. **查詢一律使用 DTO class 投影**（建構子表達式），**禁止介面投影**。
 5. **JPQL 使用 Java Text Block，各關鍵字子句之間空一行。**
 6. **Entity 類別名稱不加 `Entity` 後綴。** Enum 類別名稱必須以 `Enum` 結尾並標 `@Getter`。
-7. **註解使用英文 Javadoc，不使用 `<p>` 標籤。**
+7. **註解使用繁體中文 Javadoc，不使用 `<p>` 標籤。** 技術名詞（類別名、註解名、`null`、`token`、HTTP 狀態碼）保持原文不翻譯。本文件後續 Task 的程式碼範例仍是英文註解，實作時一律改寫成中文。
 8. **null 判斷使用 `Objects.isNull` / `Objects.nonNull` 或 `ObjectUtils.isEmpty` / `isNotEmpty`；相等比較使用 `Objects.equals`。禁止 `== null`、`!= null`、直接 `.equals()`。**
 9. **Lambda 參數使用有意義的名稱**，禁止單字母。
 10. **金額一律 `BigDecimal`**，禁止 `float` / `double`。
@@ -1054,7 +1073,7 @@ EOF
 
 ---
 
-# Task 4：錯誤處理骨架　⬅ 下一個
+# Task 4：錯誤處理骨架　✅ 已完成
 
 **分支：** `feat/error-handling`
 
@@ -1229,7 +1248,7 @@ EOF
 
 ---
 
-# Task 5：外部服務介面與用量記錄
+# Task 5：外部服務介面與用量記錄　⬅ 下一個
 
 **分支：** `feat/client-contracts`
 

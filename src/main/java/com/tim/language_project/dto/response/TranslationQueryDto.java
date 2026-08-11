@@ -1,7 +1,7 @@
 package com.tim.language_project.dto.response;
 
 /**
- * Projection of a cached query row. Used as a JPQL constructor expression target.
+ * 查詢快取的投影，也就是 JPQL 建構子表達式要組出來的型別。
  */
 public record TranslationQueryDto(
         Long id,

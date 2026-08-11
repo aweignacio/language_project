@@ -13,8 +13,8 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * Cached translation result keyed by the raw text the user submitted.
- * This is the only table that owns an audio file.
+ * 翻譯結果的快取，以使用者輸入的原始文字當作查詢的鍵。
+ * 整個專案只有這張表擁有音檔。
  */
 @Entity
 @Table(name = "translation_query")
@@ -28,7 +28,7 @@ public class TranslationQuery {
     @Column(name = "id")
     private Long id;
 
-    /** Raw Chinese input, trimmed before persisting. Unique. */
+    /** 使用者輸入的中文原文，寫入前會先去掉頭尾空白。不可重複。 */
     @Column(name = "source_text", columnDefinition = "NVARCHAR(100)", nullable = false)
     private String sourceText;
 
@@ -39,8 +39,8 @@ public class TranslationQuery {
     private String romanization;
 
     /**
-     * Generated audio file name. Null when speech synthesis failed —
-     * the translation is still returned, only the play button is hidden.
+     * 產生出來的音檔檔名。語音合成失敗時是 null ——
+     * 翻譯結果照樣回傳，只是前端不顯示播放鍵。
      */
     @Column(name = "audio_file", length = 100)
     private String audioFile;

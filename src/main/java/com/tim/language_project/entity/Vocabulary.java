@@ -16,8 +16,8 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * Chinese to Thai dictionary entry accumulated from query segmentation.
- * Holds no audio — only the query cache owns audio files.
+ * 中泰對照的單字，由每次查詢的拆解結果慢慢累積而成。
+ * 這裡不存音檔 —— 只有查詢快取那張表擁有音檔。
  */
 @Entity
 @Table(name = "vocabulary")
@@ -40,7 +40,7 @@ public class Vocabulary {
     @Column(name = "romanization", columnDefinition = "NVARCHAR(100)", nullable = false)
     private String romanization;
 
-    /** Kept as first written; never updated for an existing entry. */
+    /** 維持第一次寫入時的值；單字已存在就不會再更新這個欄位。 */
     @Enumerated(EnumType.STRING)
     @Column(name = "source_type", length = 20, nullable = false)
     private VocabularySourceTypeEnum sourceType;

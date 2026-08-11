@@ -19,8 +19,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * One external service call with its usage and cost. Audit data — kept even when
- * the referenced query is deleted, hence no foreign key constraint.
+ * 一次外部服務呼叫的用量與費用。屬於稽核資料 ——
+ * 就算對應的查詢被刪掉也要留著，所以不設外鍵限制。
  */
 @Entity
 @Table(name = "api_usage_log")
@@ -34,7 +34,7 @@ public class ApiUsageLog {
     @Column(name = "id")
     private Long id;
 
-    /** Loose reference to the query this call served. Null when unknown. */
+    /** 這次呼叫是為了哪筆查詢，只是鬆散參照。不確定時為 null。 */
     @Column(name = "query_id")
     private Long queryId;
 
@@ -56,11 +56,11 @@ public class ApiUsageLog {
     @Column(name = "input_units", nullable = false)
     private Long inputUnits;
 
-    /** Always zero for speech synthesis. */
+    /** 語音合成一律是 0。 */
     @Column(name = "output_units", nullable = false)
     private Long outputUnits;
 
-    /** Unit price at the time of the call, so historical rows stay auditable. */
+    /** 呼叫當下的單價。之後服務商調價，舊資料的費用仍然對得起來。 */
     @Column(name = "input_unit_price", precision = 12, scale = 8, nullable = false)
     private BigDecimal inputUnitPrice;
 

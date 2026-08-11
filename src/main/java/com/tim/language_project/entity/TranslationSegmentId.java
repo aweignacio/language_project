@@ -9,7 +9,7 @@ import lombok.Setter;
 import java.io.Serializable;
 
 /**
- * Composite identity for {@link TranslationSegment}.
+ * {@link TranslationSegment} 的複合主鍵。
  */
 @Getter
 @Setter

@@ -10,9 +10,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * One word of the segmentation of a query. Records how a specific sentence was
- * split, so the same word may appear across many queries.
- * The parent is referenced by a plain identifier column, not a JPA association.
+ * 一筆查詢拆解後的其中一個詞。記錄的是「這一句話當初怎麼拆」，
+ * 所以同一個詞可能出現在很多筆查詢底下。
+ * 父層只用單純的 id 欄位參照，不使用 JPA 關聯註解。
  */
 @Entity
 @Table(name = "translation_segment")
@@ -26,7 +26,7 @@ public class TranslationSegment {
     @Column(name = "query_id")
     private Long queryId;
 
-    /** Display order, starting from 1. */
+    /** 顯示順序，從 1 開始。 */
     @Id
     @Column(name = "seq_no")
     private Integer seqNo;

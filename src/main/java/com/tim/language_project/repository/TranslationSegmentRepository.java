@@ -10,7 +10,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 /**
- * Data access for per-query word segmentation.
+ * 各筆查詢逐詞拆解結果的資料存取。
  */
 public interface TranslationSegmentRepository
         extends JpaRepository<TranslationSegment, TranslationSegmentId> {

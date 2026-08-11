@@ -3,8 +3,8 @@ package com.tim.language_project.enums;
 import lombok.Getter;
 
 /**
- * Billing unit used by an external service. Chat models bill per token,
- * speech synthesis bills per character.
+ * 外部服務的計費單位。
+ * 對話模型以 token 計價，語音合成以字元計價。
  */
 @Getter
 public enum UsageUnitTypeEnum {

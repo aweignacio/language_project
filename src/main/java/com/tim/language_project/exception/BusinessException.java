@@ -4,8 +4,8 @@ import com.tim.language_project.enums.ErrorCodeEnum;
 import lombok.Getter;
 
 /**
- * Application exception carrying a predefined error code. The global handler
- * derives the HTTP status and message from the code.
+ * 帶著預先定義好錯誤碼的自訂例外。
+ * 全域處理器會從這個錯誤碼取出 HTTP 狀態與訊息。
  */
 @Getter
 public class BusinessException extends RuntimeException {

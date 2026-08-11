@@ -9,7 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 
 /**
- * Data access for the query result cache.
+ * 查詢結果快取的資料存取。
  */
 public interface TranslationQueryRepository extends JpaRepository<TranslationQuery, Long> {
 

@@ -1,7 +1,7 @@
 package com.tim.language_project.dto.response;
 
 /**
- * Projection of a dictionary entry.
+ * 單字資料的投影。
  */
 public record VocabularyDto(
         Long id,
