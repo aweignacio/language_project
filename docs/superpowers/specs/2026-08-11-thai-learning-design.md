@@ -508,6 +508,7 @@ public class GlobalExceptionHandler {
 | 備份機制 | `C:\Tim\docker\backup-db.ps1`，備份檔存於 `C:\Tim\docker\mssql-backup\`，已實測通過 |
 | pom.xml 調整 | 已移除 MySQL、Redis、session、docker-compose 相關依賴；Anthropic 已替換為 `spring-ai-starter-model-openai` |
 | 設定檔 | `application.properties` 已改為 `application.yml`；帳密與 API Key 置於 `application-local.yml`（已排除於版本控制） |
+| 資料表 | 四張表已建立，腳本為 `db/schema.sql`。已驗證：文字欄位皆為 `NVARCHAR`、泰文與拼音讀寫無損、UNIQUE / CHECK / 外鍵 CASCADE 均正常運作 |
 
 ### 待辦
 
@@ -516,4 +517,4 @@ public class GlobalExceptionHandler {
 | OpenAI API Key | 尚未申請。`application-local.yml` 目前填的是佔位字串，實作翻譯與語音功能前需填入實際金鑰 |
 | 泰語 TTS 品質試聽 | OpenAI 語音以英文為主，Google / Azure 有專屬 `th-TH` 語音。建議於 `openai.fm`、Google Cloud TTS 產品頁、Azure Speech Studio 分別試聽同一句泰文後再定案。因語音服務已抽成介面，日後更換不影響其他程式 |
 | 外部服務單價查證 | 實作前需查證 OpenAI 官方最新定價，填入 `application.yml` 的 `ai.pricing` 區塊 |
-| 資料表建立方式 | `spring.jpa.hibernate.ddl-auto` 設為 `none`，資料表需以 SQL 腳本明確建立（確保 `NVARCHAR` 型別正確），腳本尚未撰寫 |
+| `api_usage_log.query_id` 的寫入時機 | 用量紀錄於呼叫外部服務當下寫入，此時 `translation_query` 尚未存在（外部呼叫在交易之外），故 `query_id` 無法即時填入。需在實作 Client 層時決定作法：先寫 null 再回填，或由 Service 於交易中一併寫入。資料表已配合此限制不建立外鍵約束 |
