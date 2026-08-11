@@ -24,6 +24,43 @@
 | 四張資料表 | 已由 `db/schema.sql` 建立並驗證 |
 | `pom.xml` | 依賴已整理，Spring AI 為 OpenAI |
 | `application.yml` / `application-local.yml` | 已建立，機密不進版控 |
+| **Task 1：建立 Enum** | 完成，分支 `feat/enums`（commit `8ff54f9`） |
+| **Task 2：建立 Entity** | 完成，分支 `feat/entities`（commit `9f2d7ae`） |
+| **Task 3：DTO 與 Repository** | 完成，分支 `feat/repositories`（commit `e37003f`），測試 5 項全過 |
+
+**下一個要做的是 Task 4。**
+
+**分支現況：** 逐層疊加，皆未推上 origin、未合併回 main。
+`main` → `feat/enums` → `feat/entities` → `feat/repositories`
+
+### 執行過程中發現的偏離（本文件其餘部分尚未修正，實作時以此處為準）
+
+1. **所有測試的 import 路徑要改。** 本文件寫的是 Spring Boot 3.x 路徑，在 4.1 完全不存在，
+   第一次執行會出現整批 `package does not exist`。正確路徑：
+
+   | 註解 | 本文件寫的（錯） | 4.1 正確路徑 |
+   |---|---|---|
+   | `@DataJpaTest` | `...boot.test.autoconfigure.orm.jpa` | `org.springframework.boot.data.jpa.test.autoconfigure` |
+   | `@AutoConfigureTestDatabase` | `...boot.test.autoconfigure.jdbc` | `org.springframework.boot.jdbc.test.autoconfigure` |
+   | `@WebMvcTest`（Task 9 會用到） | `...boot.test.autoconfigure.web.servlet` | `org.springframework.boot.webmvc.test.autoconfigure` |
+
+   `@MockitoBean` 不受影響，本文件寫的是對的。
+
+2. **Task 7 Step 4 的第一個方案是錯的。** `spring.web.resources.static-locations` 加 `file:audio/`
+   是掛在 `/**` 底下，`/audio/x.mp3` 會被解析成 `audio/audio/x.mp3`，取不到檔。
+   直接使用該步驟的備案 `WebMvcConfig`，跳過該 yaml 設定。
+
+3. **Task 10 的 `app.js` 有 XSS 破口。** 原始碼用 `innerHTML` 拼字串塞入 API 回傳值，
+   使用者輸入會被當 HTML 執行。改用 `createElement` + `textContent`，畫面完全相同。
+
+4. **`application-local.yml` 的 OpenAI api-key 目前是佔位字串。**
+   Task 6 Step 4 與 Task 10 Step 4 的「手動驗證」在補上真實金鑰前無法執行，
+   需由 Awei 自行完成。自動化測試本來就禁止呼叫真實 API，不受影響。
+
+### 執行方式
+
+Awei 要求：**每個 Task 完成後停下來回報，經他確認後才進行下一個 Task。**
+不推 origin、不開 PR，分支繼續往下疊。
 
 **資料庫連線資訊**（已寫在 `src/main/resources/application-local.yml`）：
 `localhost:1433` / `sa` / `Sqlserver123456` / 資料庫 `language_project`
@@ -155,7 +192,7 @@ src/test/java/com/tim/language_project/
 
 ---
 
-# Task 1：建立 Enum
+# Task 1：建立 Enum　✅ 已完成
 
 **分支：** `feat/enums`
 
@@ -323,7 +360,7 @@ EOF
 
 ---
 
-# Task 2：建立 Entity
+# Task 2：建立 Entity　✅ 已完成
 
 **分支：** `feat/entities`
 
@@ -634,9 +671,11 @@ EOF
 
 ---
 
-# Task 3：建立 DTO 與 Repository
+# Task 3：建立 DTO 與 Repository　✅ 已完成
 
 **分支：** `feat/repositories`
+
+> 測試檔另加了給 Awei 看的中文教學註解（commit `bbcbca5`），非計畫內容，可隨時移除。
 
 **Files:**
 - Create: `src/main/java/com/tim/language_project/dto/response/TranslationQueryDto.java`
@@ -1015,7 +1054,7 @@ EOF
 
 ---
 
-# Task 4：錯誤處理骨架
+# Task 4：錯誤處理骨架　⬅ 下一個
 
 **分支：** `feat/error-handling`
 
