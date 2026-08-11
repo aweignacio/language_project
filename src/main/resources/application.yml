@@ -25,6 +25,19 @@ spring:
       hibernate:
         format_sql: true
 
+ai:
+  pricing:
+    openai:
+      # 實際數值需查證 OpenAI 官方定價後填入。單位為「每一 token / 每一字元」的美金價格。
+      translation-input-price: 0.00000500
+      translation-output-price: 0.00001500
+      speech-price: 0.00001500
+
+audio:
+  storage:
+    # 音檔存放資料夾。已列入 .gitignore，不進版本控制。
+    directory: audio
+
 logging:
   level:
     root: info

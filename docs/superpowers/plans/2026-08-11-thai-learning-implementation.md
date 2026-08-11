@@ -28,11 +28,12 @@
 | **Task 2：建立 Entity** | 完成，分支 `feat/entities`（commit `9f2d7ae`） |
 | **Task 3：DTO 與 Repository** | 完成，分支 `feat/repositories`（commit `e37003f`），測試 5 項全過 |
 | **Task 4：錯誤處理骨架** | 完成，分支 `feat/error_handle`（commit `784b34b`、`72542d9`），測試 9 項全過 |
+| **Task 5：外部服務介面與用量記錄** | 完成，分支 `feat/client-contracts`，測試 12 項全過 |
 
-**下一個要做的是 Task 5。**
+**下一個要做的是 Task 6。**
 
 **分支現況：** 逐層疊加，皆未推上 origin、未合併回 main。
-`main` → `feat/enums` → `feat/entities` → `feat/repositories` → `feat/error_handle`
+`main` → `feat/enums` → `feat/entities` → `feat/repositories` → `feat/error_handle` → `feat/client-contracts`
 （Task 4 分支名為 `feat/error_handle`，與本文件寫的 `feat/error-handling` 不同，以實際分支為準。）
 
 ### 執行過程中發現的偏離（本文件其餘部分尚未修正，實作時以此處為準）
@@ -75,6 +76,13 @@
 7. **`mvnw test` 出現 `Unresolved compilation problem` 時，改用 `mvnw clean test`。**
    IDE 會在背景把沒跑 Lombok 的壞 class 寫進 `target/`，Maven 判定「不用重編」而沿用，
    產生看似無法解釋的失敗。IDE 在 Lombok 相關程式上標的紅字同樣不是真錯誤，一律以 Maven 為準。
+
+8. **`ApiUsageRecorder` 的 try/catch 保護不完整（尚未處理，待 Awei 決定）。**
+   `try/catch` 寫在 `@Transactional(REQUIRES_NEW)` 方法「內部」。若 `save` 失敗，
+   JPA 會把該交易標記為 rollback-only，方法正常返回後 Spring 提交時仍會丟出
+   `UnexpectedRollbackException`，一樣會傳到呼叫端 —— 與「記帳絕不影響主流程」的原意不符。
+   一般寫法是拆成兩個方法：外層不帶交易、負責 try/catch，內層帶 `REQUIRES_NEW` 負責寫入。
+   Task 8 串接 Service 時可一併處理。
 
 ### 執行方式
 
@@ -1248,7 +1256,11 @@ EOF
 
 ---
 
-# Task 5：外部服務介面與用量記錄　⬅ 下一個
+# Task 5：外部服務介面與用量記錄　✅ 已完成
+
+> 計畫原本此 Task 無測試。實作時加了 `ApiUsageRecorderTest`（3 項），
+> 因為費用計算是專案唯一算錢的地方，算錯不會有任何錯誤訊息。
+> 另有一項未解決的疑慮，見「已知偏離」第 8 條。
 
 **分支：** `feat/client-contracts`
 
