@@ -89,6 +89,10 @@
 Awei 要求：**每個 Task 完成後停下來回報，經他確認後才進行下一個 Task。**
 不推 origin、不開 PR，分支繼續往下疊。
 
+**⚠ 絕對不可自行 commit。** 各 Task 最後一步雖然寫著「Commit」，但實作者只做到
+「改完檔案、測試跑過、回報結果」為止，**停在未提交狀態**，等 Awei 看過並明確說可以，才執行 commit。
+分支可以先開，程式可以先改，就是不能自己提交。
+
 **資料庫連線資訊**（已寫在 `src/main/resources/application-local.yml`）：
 `localhost:1433` / `sa` / `Sqlserver123456` / 資料庫 `language_project`
 
