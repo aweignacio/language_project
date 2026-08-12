@@ -27,6 +27,14 @@ spring:
           voice: alloy
           response-format: mp3
 
+  data:
+    web:
+      pageable:
+        # 分頁回應改用穩定的 DTO 結構輸出。
+        # 直接序列化 PageImpl 的話，Spring 會警告「JSON 結構不保證穩定」——
+        # 意思是升級版本時欄位可能改變，而前端正是靠這個結構在讀資料。
+        serialization-mode: via-dto
+
   jpa:
     # 關閉 Open Session In View，避免在 View 層觸發非預期的延遲查詢。
     # 本專案不使用 JPA 關聯註解，資料一律在 Service 層查詢完畢後轉為 DTO。

@@ -31,16 +31,17 @@
 | **Task 5：外部服務介面與用量記錄** | 完成，分支 `feat/client-contracts`（commit `043b4c6`、`1f5af44`），測試 12 項全過 |
 | **Task 6：OpenAI 翻譯實作** | 完成，分支 `feat/openai-translation`（commit `d1538d2`、`e2400f9`），測試 16 項全過 |
 | **Task 7：OpenAI 語音實作與音檔儲存** | 完成，分支 `feat/openai-speech`（commit `deb4ce7`），測試 21 項全過 |
-| **Task 8：Service 主流程** | 程式完成、測試 29 項全過，**尚未 commit**，等 Awei 確認 |
+| **Task 8：Service 主流程** | 完成，分支 `feat/translation-service`（commit `fb08796`），測試 29 項全過 |
+| **Task 9：Controller** | 程式完成、測試 34 項全過，**尚未 commit**，等 Awei 確認 |
 
-**下一個要做的是 Task 9。**
+**下一個要做的是 Task 10（最後一個）。**
 
-**注意：Task 1-7 已全部合併回 `main`（快進），本地與 origin/main 皆已同步至 `deb4ce7` 之後。**
+**注意：Task 1-8 已全部合併回 `main`，`main` 目前在 `fb08796`。**
 
 **分支現況：** 逐層疊加，皆未推上 origin、未合併回 main。
 `main` → `feat/enums` → `feat/entities` → `feat/repositories` → `feat/error_handle`
 → `feat/client-contracts` → `feat/openai-translation` → `feat/openai-speech`
-→ `feat/translation-service`（Task 8，未提交）
+→ `feat/translation-controller`（Task 9，未提交）
 （Task 4 分支名為 `feat/error_handle`，與本文件寫的 `feat/error-handling` 不同，以實際分支為準。）
 
 ### 執行過程中發現的偏離（本文件其餘部分尚未修正，實作時以此處為準）
@@ -178,6 +179,35 @@
     `translation_query.source_text` 的唯一限制會讓其中一筆失敗，回 500。
     單人使用不會遇到，之後若要多人使用需處理（捕捉 `DataIntegrityViolationException`
     後改讀既有那筆即可）。
+
+19. **Task 9 的測試 import 與 Jackson 版本問題。**
+    - `@WebMvcTest` 計畫寫的是 3.x 路徑，4.1 要用
+      `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest`（同已知偏離第 1 條）
+    - 計畫的測試注入 `com.fasterxml.jackson.databind.ObjectMapper`。
+      **Spring Boot 4 用的是 Jackson 3**（`tools.jackson.*`），那個 Bean 不存在。
+      改為在測試裡直接寫 JSON 字串，並以 `getBytes(UTF_8)` 送出，
+      同時避開中文編碼問題。
+
+20. **`@WebMvcTest` 一定要指定 `controllers = ...`（踩過的坑）。**
+    不指定的話會載入專案裡「所有」Controller，而它們各自的 Service 不在切片內，
+    整個 context 起不來。Task 9 新增 `TranslationController` 之後，
+    與它完全無關的 `GlobalExceptionHandlerTest` 四個測試立刻全紅，
+    錯誤是 `No qualifying bean of type TranslationService`。
+    已在該測試補上 `controllers = GlobalExceptionHandlerTest.TestController.class`。
+    **這是第二次因為切片測試載入範圍而壞掉**（第一次見第 14 條），
+    Task 10 若再新增任何 Controller 或 WebMvcConfigurer，先想一下切片測試會不會受影響。
+
+21. **分頁回應改用 `serialization-mode: via-dto`。**
+    直接序列化 `PageImpl` 時 Spring 會警告
+    「Serializing PageImpl instances as-is is not supported，JSON 結構不保證穩定」。
+    前端正是靠這個結構讀資料，所以在 `application.yml` 設定
+    `spring.data.web.pageable.serialization-mode: via-dto`，警告消失。
+    回應仍是 `{ "content": [...], "page": {...} }`，`content` 的位置不變。
+
+22. **Task 9 加了 `VocabularyControllerTest`（2 項）。**
+    計畫沒有排單字端點的測試。其中「查不到回 404」特別值得測 ——
+    `VOCABULARY_NOT_FOUND` 這個錯誤碼定義很久了，
+    但在此之前從來沒有任何程式真的丟出過它，那條路等於沒被驗證過。
 
 ### 執行方式
 
@@ -2434,7 +2464,11 @@ EOF
 
 ---
 
-# Task 9：Controller　⬅ 下一個
+# Task 9：Controller　✅ 已完成
+
+> Step 2 的測試已改寫：修正 `@WebMvcTest` 路徑、移除 `ObjectMapper`、
+> 新增第三個測試（201 狀態碼）。另加 `VocabularyControllerTest`。
+> 詳見「已知偏離」第 19 到 22 條。
 
 **分支：** `feat/translation-controller`
 
@@ -2685,7 +2719,7 @@ EOF
 
 ---
 
-# Task 10：前端查詢頁面
+# Task 10：前端查詢頁面　⬅ 下一個
 
 **分支：** `feat/web-page`
 

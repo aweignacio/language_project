@@ -120,8 +120,24 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// 這兩張貼紙的作用見開頭第 2、3 步。
-@WebMvcTest
+/*
+ * 這兩張貼紙的作用見開頭第 2、3 步。
+ *
+ * ★ controllers = TestController.class 這個參數不能省略。
+ *
+ *   不寫的話 @WebMvcTest 會把「專案裡所有的 Controller」都載入進來，
+ *   而那些 Controller 各自需要它們的 Service ——
+ *   那些 Service 不在網頁切片裡，於是整個 context 起不來，
+ *   這支測試就會莫名其妙地全部掛掉。
+ *
+ *   （這件事真的發生過：Task 9 加了 TranslationController 之後，
+ *     這支跟它完全無關的測試四個全紅，錯誤訊息是
+ *     「No qualifying bean of type TranslationService」。）
+ *
+ *   指定之後，這裡就只載入下面那個假的 TestController，
+ *   之後不管專案再加幾個 Controller 都不會影響到這支測試。
+ */
+@WebMvcTest(controllers = GlobalExceptionHandlerTest.TestController.class)
 @Import(GlobalExceptionHandlerTest.TestController.class)
 class GlobalExceptionHandlerTest {
 
