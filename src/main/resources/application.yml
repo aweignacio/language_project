@@ -20,6 +20,12 @@ spring:
         options:
           # 金鑰寫在 application-local.yml，不進版本控制。
           model: gpt-4o-mini
+      audio:
+        speech:
+          # 語音設定採用扁平寫法。舊版的 audio.speech.options.* 巢狀形式已標記為棄用。
+          model: gpt-4o-mini-tts
+          voice: alloy
+          response-format: mp3
 
   jpa:
     # 關閉 Open Session In View，避免在 View 層觸發非預期的延遲查詢。

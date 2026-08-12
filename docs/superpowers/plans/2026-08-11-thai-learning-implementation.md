@@ -29,13 +29,14 @@
 | **Task 3：DTO 與 Repository** | 完成，分支 `feat/repositories`（commit `e37003f`），測試 5 項全過 |
 | **Task 4：錯誤處理骨架** | 完成，分支 `feat/error_handle`（commit `784b34b`、`72542d9`），測試 9 項全過 |
 | **Task 5：外部服務介面與用量記錄** | 完成，分支 `feat/client-contracts`（commit `043b4c6`、`1f5af44`），測試 12 項全過 |
-| **Task 6：OpenAI 翻譯實作** | 程式完成、測試 16 項全過，**尚未 commit**，等 Awei 確認 |
+| **Task 6：OpenAI 翻譯實作** | 完成，分支 `feat/openai-translation`（commit `d1538d2`、`e2400f9`），測試 16 項全過 |
+| **Task 7：OpenAI 語音實作與音檔儲存** | 程式完成、測試 21 項全過，**尚未 commit**，等 Awei 確認 |
 
-**下一個要做的是 Task 7。**
+**下一個要做的是 Task 8。**
 
 **分支現況：** 逐層疊加，皆未推上 origin、未合併回 main。
 `main` → `feat/enums` → `feat/entities` → `feat/repositories` → `feat/error_handle`
-→ `feat/client-contracts` → `feat/openai-translation`
+→ `feat/client-contracts` → `feat/openai-translation` → `feat/openai-speech`
 （Task 4 分支名為 `feat/error_handle`，與本文件寫的 `feat/error-handling` 不同，以實際分支為準。）
 
 ### 執行過程中發現的偏離（本文件其餘部分尚未修正，實作時以此處為準）
@@ -116,6 +117,35 @@
 
     `INPUT_TOO_LONG` 也建議一併補上 —— `source_text` 欄位只有 NVARCHAR(100)，
     超長輸入會在寫入時失敗，而錢已經先花掉了。
+
+12. **Task 7 的語音設定改用扁平寫法。**
+    計畫寫的 `spring.ai.openai.audio.speech.options.model` 是**已棄用**的巢狀形式
+    （`OpenAiAudioSpeechProperties.getOptions()` 標記為 deprecated）。
+    現行寫法是扁平的：`spring.ai.openai.audio.speech.model` / `.voice` / `.response-format`。
+    `OpenAiSpeechClient` 的 `@Value` 預設值也跟著改成 `spring.ai.openai.audio.speech.model`。
+    `TextToSpeechModel.call(String)` 回傳 `byte[]`，計畫寫的這部分是對的。
+
+13. **Task 7 的失敗記帳規則（改了計畫）。**
+    計畫三條失敗路徑一律記 `thaiText.length()`。這會讓「根本沒接通」的呼叫
+    也在帳上產生費用。改成依「OpenAI 有沒有真的替我們做事」判斷：
+
+    | 失敗原因 | 記多少用量 | 理由 |
+    |---|---|---|
+    | `CONNECTION_FAILED` | **0** | 沒接通，沒有費用 |
+    | `UNKNOWN`（回空音訊） | 字元數 | 已處理過請求，已被收費 |
+    | `FILE_SAVE_FAILED` | 字元數 | 聲音拿到了，是我們自己沒存下來 |
+
+14. **`AudioStorageProperties` 絕對不可標 `@Component`（踩過的坑）。**
+    `@WebMvcTest` 切片會載入 `WebMvcConfigurer`（即 `WebMvcConfig`）但**不載入 `@Component`**，
+    因此設定類別若靠 `@Component` 註冊，切片測試會因找不到它而整個 context 起不來，
+    害得與音檔無關的 `GlobalExceptionHandlerTest` 四個測試一起掛掉。
+    正確做法：`AudioStorageProperties` 只標 `@ConfigurationProperties`，
+    由 `WebMvcConfig` 以 `@EnableConfigurationProperties(AudioStorageProperties.class)` 註冊。
+    **Task 9 新增 Controller 測試時要注意同類問題。**
+
+15. **Task 7 加了 `OpenAiSpeechClientTest`（5 項）。**
+    把 `TextToSpeechModel` 換成假物件，並用 JUnit 的 `@TempDir` 當音檔資料夾，
+    不會寫進專案的 `audio/`，測完自動刪。
 
 ### 執行方式
 
@@ -1709,7 +1739,10 @@ EOF
 
 ---
 
-# Task 7：OpenAI 語音實作與音檔儲存
+# Task 7：OpenAI 語音實作與音檔儲存　✅ 已完成
+
+> Step 4 的 yaml `static-locations` 方案已依已知偏離第 2 條跳過，直接使用 `WebMvcConfig`。
+> 另有四項偏離見「已知偏離」第 12 到 15 條。
 
 **分支：** `feat/openai-speech`
 
@@ -1922,7 +1955,7 @@ EOF
 
 ---
 
-# Task 8：Service 主流程
+# Task 8：Service 主流程　⬅ 下一個
 
 **分支：** `feat/translation-service`
 
