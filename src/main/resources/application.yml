@@ -14,6 +14,13 @@ spring:
       initialization-fail-timeout: 60000
       connection-timeout: 30000
 
+  ai:
+    openai:
+      chat:
+        options:
+          # 金鑰寫在 application-local.yml，不進版本控制。
+          model: gpt-4o-mini
+
   jpa:
     # 關閉 Open Session In View，避免在 View 層觸發非預期的延遲查詢。
     # 本專案不使用 JPA 關聯註解，資料一律在 Service 層查詢完畢後轉為 DTO。

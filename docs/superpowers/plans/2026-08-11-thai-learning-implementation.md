@@ -28,12 +28,14 @@
 | **Task 2：建立 Entity** | 完成，分支 `feat/entities`（commit `9f2d7ae`） |
 | **Task 3：DTO 與 Repository** | 完成，分支 `feat/repositories`（commit `e37003f`），測試 5 項全過 |
 | **Task 4：錯誤處理骨架** | 完成，分支 `feat/error_handle`（commit `784b34b`、`72542d9`），測試 9 項全過 |
-| **Task 5：外部服務介面與用量記錄** | 完成，分支 `feat/client-contracts`，測試 12 項全過 |
+| **Task 5：外部服務介面與用量記錄** | 完成，分支 `feat/client-contracts`（commit `043b4c6`、`1f5af44`），測試 12 項全過 |
+| **Task 6：OpenAI 翻譯實作** | 程式完成、測試 16 項全過，**尚未 commit**，等 Awei 確認 |
 
-**下一個要做的是 Task 6。**
+**下一個要做的是 Task 7。**
 
 **分支現況：** 逐層疊加，皆未推上 origin、未合併回 main。
-`main` → `feat/enums` → `feat/entities` → `feat/repositories` → `feat/error_handle` → `feat/client-contracts`
+`main` → `feat/enums` → `feat/entities` → `feat/repositories` → `feat/error_handle`
+→ `feat/client-contracts` → `feat/openai-translation`
 （Task 4 分支名為 `feat/error_handle`，與本文件寫的 `feat/error-handling` 不同，以實際分支為準。）
 
 ### 執行過程中發現的偏離（本文件其餘部分尚未修正，實作時以此處為準）
@@ -83,6 +85,20 @@
    `UnexpectedRollbackException`，一樣會傳到呼叫端 —— 與「記帳絕不影響主流程」的原意不符。
    一般寫法是拆成兩個方法：外層不帶交易、負責 try/catch，內層帶 `REQUIRES_NEW` 負責寫入。
    Task 8 串接 Service 時可一併處理。
+
+9. **Task 6 改用真實 token 用量，不採計畫的字數估算。**
+   計畫原本以 `sourceText.length()` 當 token 數，是猜的，帳會對不起來。
+   改用 `.call().responseEntity(TranslationPayload.class)`（而非 `.entity()`），
+   可同時取得轉好的物件與完整 `ChatResponse`，真實用量在
+   `chatResponse.getMetadata().getUsage()` 的 `getPromptTokens()` / `getCompletionTokens()`。
+   取不到時記 0 並留 warn，不用估算值填充。
+   另外，回應格式不合法時（`TRANSLATION_RESPONSE_INVALID`）用量照記，因為那次呼叫確實已被收費。
+
+10. **Task 6 加了 `OpenAiTranslationClientTest`（4 項），未違反「禁止呼叫真實 API」。**
+    做法是把 `ChatModel` 換成 Mockito 假物件，離線、免金鑰、不花錢。
+    **測試必備**：要 stub `chatModel.getOptions()` 回傳 `ChatOptions.builder().build()`，
+    否則 `DefaultChatClientUtils.toChatClientRequest` 會 NPE。
+    注意是 `getOptions()`，不是已棄用的 `getDefaultOptions()`。
 
 ### 執行方式
 

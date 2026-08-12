@@ -1,5 +1,58 @@
 package com.tim.language_project.exception;
 
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ *  這個檔案是什麼？
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  全專案的「錯誤總機」。任何請求處理到一半出錯，最後都會來到這裡，
+ *  由它決定要回什麼狀態碼、什麼訊息給前端。
+ *
+ *  沒有它的話，例外會變成 Spring 預設的錯誤頁面，格式不一、
+ *  而且可能把內部訊息（連線字串、檔案路徑）直接印給使用者看。
+ *
+ * ── @RestControllerAdvice 是什麼？ ──────────────────────────────────────
+ *
+ *  「這個類別負責處理所有 Controller 丟出來的例外。」
+ *  不用在每個 Controller 寫 try/catch，Spring 會自動把例外送過來。
+ *
+ * ── Spring 怎麼決定由誰處理？ ───────────────────────────────────────────
+ *
+ *  例外發生後，Spring 拿著它依序問一串處理器：
+ *
+ *      1. ExceptionHandlerExceptionResolver  ← 這個檔案掛在這裡（最優先）
+ *      2. ResponseStatusExceptionResolver
+ *      3. DefaultHandlerExceptionResolver    ← Spring 內建（404、405 由它翻譯）
+ *
+ *  排前面的接走了，後面的就沒機會。這件事造成過一個 bug，見下方。
+ *
+ *  同一個檔案裡有兩個 @ExceptionHandler 時，Java 挑「型別最貼近」的那個：
+ *  BusinessException 兩個都符合，但它比 Exception 貼近，所以走第一個。
+ *
+ * ── 這裡修過的一個 bug（重要）─────────────────────────────────────────
+ *
+ *  原本兜底處理器寫成「任何例外都回 500」。但它排在第 1 順位，
+ *  於是連 Spring 內建要回 404 的「網址不存在」也被它接走，變成 500 ——
+ *  等於把「使用者打錯字」講成「伺服器爆炸」。
+ *
+ *  修法是在兜底處理器裡先問一句「你身上有沒有帶狀態碼」
+ *  （instanceof ErrorResponse），有的話就沿用它說的。
+ *
+ * ── 何時執行 ────────────────────────────────────────────────────────────
+ *
+ *   Service throw BusinessException  →  handleBusinessException
+ *                                       → 照 ErrorCodeEnum 的定義回應
+ *
+ *   網址打錯、方法用錯（Spring 丟的）→  handleUnexpectedException
+ *                                       → 沿用 Spring 判定的 404 / 405
+ *
+ *   NullPointerException 之類         →  handleUnexpectedException
+ *                                       → 500，訊息換成罐頭訊息，內情只進日誌
+ *
+ *  測試檔：src/test/java/.../exception/GlobalExceptionHandlerTest.java
+ *  相關：ErrorCodeEnum、BusinessException、ErrorResponseDto。
+ */
+
 import com.tim.language_project.dto.response.ErrorResponseDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
 import lombok.extern.slf4j.Slf4j;
