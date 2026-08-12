@@ -2,78 +2,163 @@ package com.tim.language_project.client.openai;
 
 /*
  * ══════════════════════════════════════════════════════════════════════════
- *  看這個檔案之前，先搞懂三層「Chat 什麼」
+ *  這個檔案負責什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
- *  下面的程式碼會出現三個長得很像的名字，其實是三層，由下往上：
+ *  收到一句中文，回傳泰文＋拼音＋逐詞對照。實際去問 OpenAI 的就是這裡。
  *
- *    ① OpenAI Chat API  一個網址。送 JSON 過去、回 JSON 回來。OpenAI 提供。
- *    ② ChatModel        Java 介面，把①那包 HTTP 包成一個方法。Spring AI 提供。
- *    ③ ChatClient       好用的外殼，幫忙組 prompt、把回傳的 JSON 轉成 Java 物件。
+ *  下面用「我想喝酒」走一遍完整流程，每一步標明是誰、哪個方法、
+ *  以及那一刻資料長什麼樣子。
  *
- *  這個檔案只碰③，底下兩層都是別人做好的。
+ * ══════════════════════════════════════════════════════════════════════════
+ *  流程：從你輸入「我想喝酒」到畫面出現泰文
+ * ══════════════════════════════════════════════════════════════════════════
  *
- * ── ChatModel 這個 Bean 是誰生的？ ──────────────────────────────────────
+ * ── 第 1 步｜你在網頁輸入「我想喝酒」，按下查詢 ─────────────────────────
  *
- *  pom.xml 裡的 spring-ai-starter-model-openai。Spring Boot 啟動時看到它，
- *  就自動讀 application.yml 的 spring.ai.openai.* 設定生一個出來。
- *  所以下面的建構子可以直接跟 Spring 要 ChatModel，
- *  這個檔案裡沒有任何一行連線、金鑰或 JSON 處理的程式碼。
+ *    瀏覽器把這四個字送到後端的 TranslationController（Task 9 才會做）。
  *
- * ── 為什麼要包一層 ChatClient？ ──────────────────────────────────────────
+ * ── 第 2 步｜TranslationService 先問資料庫（Task 8 才會做）──────────────
  *
- *  它多做兩件事：
+ *    「這句話以前有人查過嗎？」
+ *       查過了 → 直接把舊結果回傳，這個檔案完全不會被執行，不花半毛錢
+ *       沒查過 → 才往下走，呼叫：
  *
- *    (1) 記住系統提示詞（下面的 SYSTEM_PROMPT），不必每次重打
+ *                    translationClient.translate("我想喝酒");
+ *                          ↑
+ *                    注意 Service 呼叫的是 TranslationClient 這個「介面」，
+ *                    它不知道背後是 OpenAI 還是別家。
  *
- *    (2) 「結構化輸出」—— 直接給你 Java 物件，不是一坨字串
+ * ── 第 3 步｜進到這個檔案的 translate 方法 ──────────────────────────────
  *
- *        模型本質上只會回文字。沒有這個功能的話，我們會拿到一整段字，
- *        要自己解析「哪一段是泰文、哪一段是拼音」，模型格式一變就爆。
+ *    Spring 在啟動時就把這個類別（唯一的實作）接上了那個介面，
+ *    所以第 2 步那一行，實際跑的就是下面的 translate 方法。
  *
- *        寫 .responseEntity(TranslationPayload.class) 之後，Spring AI 會：
- *          a. 看 TranslationPayload 有哪些欄位，自動產生 JSON 格式規範
- *          b. 把規範附進請求，等於跟模型說「你必須照這個格式回」
- *          c. 收到回應後，自動把 JSON 轉成 TranslationPayload 物件
+ *        public TranslationResult translate(String sourceText)
+ *                                                 ↑
+ *                                          值是 "我想喝酒"
  *
- *        這也是 TranslationPayload 必須是「容器物件」的原因 ——
- *        OpenAI 的結構化輸出不接受最外層是陣列，所以包一個有 words 欄位的 record。
+ *    到這裡為止，它就只是一個普通的 Java 字串。還沒有任何 JSON。
  *
- * ── 為什麼是 responseEntity 而不是 entity？ ─────────────────────────────
+ * ── 第 4 步｜交棒給 Spring AI ───────────────────────────────────────────
  *
- *      .entity(X.class)          只給你轉好的物件，usage 被丟掉
- *      .responseEntity(X.class)  物件 ＋ 完整的 ChatResponse
+ *        chatClient.prompt()
+ *                  .user(sourceText)                        ← "我想喝酒"
+ *                  .call()
+ *                  .responseEntity(TranslationPayload.class)
  *
- *  真實的 token 用量只存在於 ChatResponse 裡：
- *      chatResponse.getMetadata().getUsage().getPromptTokens()
+ *    這一行是分界點：往下就不是我們的程式了，是 Spring AI 這套函式庫在做事。
  *
- *  這個專案要精確記帳，所以一定要用後者。
- *  （token 是計費單位，不是字數。輸入「水」一個字，實際輸入 token 可能是 120，
- *    因為上面那段長長的系統提示詞也被算進去了。用字數估算一定不準。）
+ *    ChatClient 準備三樣東西：
  *
- *  另外提醒：這裡的 ResponseEntity 是「裝兩樣東西的盒子」，
- *  跟 Spring MVC 那個回傳 HTTP 回應的 ResponseEntity 是不同類別，只是剛好同名。
+ *      (1) 系統提示詞 ── 就是下面那段 SYSTEM_PROMPT，
+ *                       建構子裡用 .defaultSystem(...) 設定的，每次都會自動帶上
  *
- * ── 一次翻譯的完整路徑 ──────────────────────────────────────────────────
+ *      (2) 使用者說的話 ── "我想喝酒"
  *
- *      TranslationService（Task 8）
- *        ↓
- *      TranslationClient        ← 我們的介面，只寫「要能翻譯」
- *        ↓
- *      OpenAiTranslationClient  ← 就是這個檔案
- *        ↓
- *      ChatClient → ChatModel → 🌐 OpenAI
- *        ↓
- *      回程：ChatResponse → TranslationPayload → TranslationResult
+ *      (3) 回覆格式規範 ── ★這個是自動產生的★
+ *                       它去看 TranslationPayload（本檔案最下面那個 record）
+ *                       有哪些欄位，自動寫出一段「你必須照這個格式回答」的規範。
+ *                       我們一個字都沒寫。
  *
- *  Service 只認識 TranslationClient 這個介面。哪天要換成別家翻譯服務，
- *  多寫一個實作就好，Service 一行都不用改。
+ * ── 第 5 步｜ChatModel 組出 JSON，用 HTTP 送給 OpenAI ───────────────────
  *
- * ── 測試怎麼做到不花錢？ ────────────────────────────────────────────────
+ *    ★★ 這裡回答「JSON 到底哪裡來的」★★
  *
- *  看上面的路徑，只有 ChatModel 那一層真的會連網路。
- *  測試把它換成假的（Mockito），叫它回一段固定的 JSON 就好；
- *  ChatClient 和這個檔案全部都是真的在跑。
+ *    JSON 不是你寫的，也不是我寫的 —— 是這一步「自動組出來」的。
+ *
+ *    為什麼需要它：OpenAI 的伺服器在美國、是別人的機器，不是 Java 程式。
+ *    兩邊要溝通，得先講好一種雙方都看得懂的文字格式，那個格式就叫 JSON。
+ *    Java 物件沒辦法直接從網路線傳過去，必須先「翻譯成文字」。
+ *
+ *    ChatModel 把第 4 步那三樣東西翻譯成這樣一段文字：
+ *
+ *        {
+ *          "model": "gpt-4o-mini",
+ *          "messages": [
+ *            { "role": "system", "content": "你是中文轉泰文的翻譯助理..." },
+ *            { "role": "user",   "content": "我想喝酒" }
+ *          ]
+ *        }
+ *
+ *    然後把它送到這個網址（等同於瀏覽器打開一個網頁，只是送的是資料）：
+ *
+ *        https://api.openai.com/v1/chat/completions
+ *
+ *    金鑰（sk-...）也是在這一步從 application-local.yml 讀出來，
+ *    放進請求的標頭，OpenAI 才知道這筆錢要跟誰收。
+ *
+ *    這整段我們都沒寫程式 —— 是 pom.xml 裡的 spring-ai-starter-model-openai
+ *    在專案啟動時，讀了 application.yml 的設定自動準備好的。
+ *
+ * ── 第 6 步｜OpenAI 回一段 JSON ─────────────────────────────────────────
+ *
+ *        {
+ *          "choices": [
+ *            { "message": { "content": "{\"thaiText\":\"ฉันอยากดื่มเหล้า\", ...}" } }
+ *          ],
+ *          "usage": { "prompt_tokens": 120, "completion_tokens": 45 }
+ *        }
+ *
+ *    ⚠ 最容易搞混的地方：content 裡面「又是一段 JSON」。
+ *
+ *      外層那包  = 「OpenAI 這次回應」的固定格式，永遠長這樣
+ *      content   = 模型真正講的話。因為第 4 步要求它照格式回答，
+ *                  所以它講的話本身又是一段 JSON
+ *
+ *      模型本質上只會「講話」，只會吐文字。它沒辦法直接給你 Java 物件，
+ *      所以我們要求它「用 JSON 的格式講話」，這樣程式才好解析。
+ *
+ *    usage 那一段就是計費用的實際用量，記帳要用的就是這兩個數字。
+ *
+ * ── 第 7 步｜Spring AI 拆成兩個物件還給我們 ─────────────────────────────
+ *
+ *      ChatModel  → 把整包回應變成 ChatResponse 物件（usage 在它身上）
+ *      ChatClient → 把 content 那串字，轉成 TranslationPayload 物件
+ *
+ *    這兩個東西一起裝在 ResponseEntity 這個「雙層盒子」裡回來：
+ *
+ *        response.entity()    → TranslationPayload（翻譯內容）
+ *        response.response()  → ChatResponse（含 usage）
+ *
+ *    註：這個 ResponseEntity 跟 Controller 回傳的那個 ResponseEntity
+ *        是完全不同的類別，只是剛好同名。
+ *
+ * ── 第 8 步｜回到我們自己的程式，做四件事 ───────────────────────────────
+ *
+ *      ① 取出真實 token 數（120 / 45）
+ *      ② 檢查回來的東西有沒有殘缺（泰文是空的就不能給使用者）
+ *      ③ 記帳：呼叫 apiUsageRecorder.record(...) 寫進 api_usage_log 表
+ *      ④ 把 TranslationPayload 轉成 TranslationResult 回傳給 Service
+ *
+ *    第 ④ 步為什麼要換一個物件？因為 TranslationPayload 是「OpenAI 的格式」，
+ *    綁著這家服務商。換成 TranslationResult 之後，Service 拿到的東西
+ *    跟哪一家服務商無關，日後換服務商 Service 一行都不用改。
+ *
+ * ── 第 9 步｜之後（Task 8）──────────────────────────────────────────────
+ *
+ *    Service 拿到 TranslationResult → 存進資料庫當快取
+ *                                   → 把逐詞的四個字沉澱進單字庫
+ *                                   → 回給前端顯示
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  補充：一次翻譯總共出現三段 JSON
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *    第 5 步  送出去的那包        我們的問題         ChatModel 自動組的
+ *    第 6 步  回來的那包          OpenAI 的回應格式   OpenAI 組的
+ *    第 6 步  content 裡面那段    模型講的話本身      模型照我們的要求寫的
+ *
+ *  三段都不是手寫的，我們從頭到尾只給了一個字串「我想喝酒」，
+ *  拿回一個 Java 物件。中間的翻譯工作都是 Spring AI 做的。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  補充：測試為什麼不會花錢
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  看第 5 步 —— 整條路上只有 ChatModel 那一層真的會連網路。
+ *  測試時把它換成假的，叫它「有人問就直接回第 6 步那段 JSON」，
+ *  第 4、7、8 步全都是真的程式在跑，只是永遠連不到 OpenAI。
  *
  *  測試檔：src/test/java/com/tim/language_project/client/openai/
  *          OpenAiTranslationClientTest.java

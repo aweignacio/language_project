@@ -100,6 +100,23 @@
     否則 `DefaultChatClientUtils.toChatClientRequest` 會 NPE。
     注意是 `getOptions()`，不是已棄用的 `getDefaultOptions()`。
 
+11. **【Task 8 待辦】輸入驗證的決策（Awei 於 2026-08-12 決定）。**
+
+    現況：`INPUT_REQUIRED`、`INPUT_TOO_LONG`、`INPUT_UNSUPPORTED_CONTENT` 三個錯誤碼
+    已定義但**沒有任何程式在用**，等於完全沒有輸入驗證。
+    因此輸入「嘎逼」「asdfgh」時，AI 會掰一個泰文出來（模型不會說「我不知道」），
+    而且會被**永久寫進快取、沉澱進單字庫**，之後每次查都回那個錯的答案。
+
+    Awei 的決定：
+    - **空字串要擋** → 丟 `INPUT_REQUIRED`，在 Service 進來就擋，不花錢呼叫 AI
+    - **「翻不翻得出來」交給 AI 判斷** → 在結構化輸出的 record 加一個欄位
+      （例如 `boolean translatable`），系統提示詞明確要求「輸入不是有意義的中文詞句時設 false」。
+      收到 false 就丟 `INPUT_UNSUPPORTED_CONTENT`，**不寫快取、不沉澱單字**。
+    - 這兩項都在 **Task 8** 做。
+
+    `INPUT_TOO_LONG` 也建議一併補上 —— `source_text` 欄位只有 NVARCHAR(100)，
+    超長輸入會在寫入時失敗，而錢已經先花掉了。
+
 ### 執行方式
 
 Awei 要求：**每個 Task 完成後停下來回報，經他確認後才進行下一個 Task。**

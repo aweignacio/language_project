@@ -2,24 +2,117 @@ package com.tim.language_project.client.usage;
 
 /*
  * ══════════════════════════════════════════════════════════════════════════
- *  這個檔案在測什麼？
+ *  這個檔案在測什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
  *  測 ApiUsageRecorder ——「每次呼叫 OpenAI 之後，記下來的費用對不對」。
  *
- *  這是專案裡唯一算錢的地方，算錯會直接反映在你對帳的數字上，
- *  而且錯了不會有任何錯誤訊息，只會靜靜地存進一個錯的數字。
- *  所以這裡值得測。
+ *  ★ 這是專案裡唯一算錢的地方。算錯不會有任何錯誤訊息，
+ *    只會靜靜存進一個錯的數字，等你月底對帳才發現。所以這裡值得測。
  *
- * ── 跟前面兩種測試的差別 ──────────────────────────────────────────────
+ * ══════════════════════════════════════════════════════════════════════════
+ *  流程：從你打指令到看見 Tests run: 3
+ * ══════════════════════════════════════════════════════════════════════════
  *
- *      @DataJpaTest  → 啟動 Spring + 連真的資料庫（慢，但驗得到 NVARCHAR）
- *      @WebMvcTest   → 啟動 Spring 的網頁那一塊（中等）
- *      這個檔案      → 完全不啟動 Spring（最快，毫秒等級）
+ * ── 第 1 步｜你在終端機打指令 ───────────────────────────────────────────
  *
- *  差別在於「要不要真的存進資料庫」。
- *  這裡要驗的是「算式對不對」，不是「存不存得進去」，
- *  所以資料庫用假的就好，這樣測試跑起來不用等，也不用開 Docker。
+ *        .\mvnw.cmd -B test "-Dtest=ApiUsageRecorderTest"
+ *
+ * ── 第 2 步｜@ExtendWith(MockitoExtension.class) 把場子交給 Mockito ──────
+ *
+ *    Mockito 是「做假物件」的工具。有了它，下面的 @Mock、@InjectMocks
+ *    才會真的生出東西。
+ *
+ * ── 第 3 步｜對每一個 @Test 重複：建實例 → 建假物件 → 跑測試 → 收尾檢查 ──
+ *
+ *    三個 @Test 就是整套跑三遍，假物件每次都是全新的。
+ *
+ * ── 第 4 步｜這支測試「不啟動 Spring」，跟前面兩種測試比較 ───────────────
+ *
+ *        @DataJpaTest  啟動 Spring ＋ 連真的 SQL Server   （慢，要開 Docker）
+ *        @WebMvcTest   啟動 Spring 的網頁那一塊           （中等）
+ *        這個檔案      完全不啟動 Spring                  （最快，毫秒等級）
+ *
+ *    差別在於「要不要真的存進資料庫」。
+ *    這裡要驗的是「算式對不對」，不是「存不存得進去」，
+ *    所以資料庫用假的就好 —— 不用等、不用開 Docker。
+ *
+ * ── 第 5 步｜假的 Repository 是怎麼被塞進去的 ───────────────────────────
+ *
+ *        @Mock         ApiUsageLogRepository apiUsageLogRepository;
+ *        @InjectMocks  ApiUsageRecorder      apiUsageRecorder;
+ *
+ *    @Mock       ＝ 做一個假的 Repository。方法都在，但裡面完全是空的：
+ *                   呼叫 save() 不會連資料庫、不會存任何東西。
+ *
+ *    @InjectMocks ＝ 做一個「真的」ApiUsageRecorder，
+ *                   但把它需要的 Repository 換成上面那個假貨。
+ *
+ *    ★ 被測的是真的 ApiUsageRecorder，跑的是它真正的算錢程式碼，
+ *      只有「存資料庫」那一步被換掉了。
+ *
+ * ── 第 6 步｜測試一實際做了什麼 ─────────────────────────────────────────
+ *
+ *  ● 執行
+ *
+ *        apiUsageRecorder.record(OPENAI, TRANSLATION, "gpt-4o-mini", TOKEN,
+ *                                1200L, 300L,
+ *                                new BigDecimal("0.00000500"),
+ *                                new BigDecimal("0.00001500"),
+ *                                true);
+ *
+ *    這串數字是刻意挑的，方便你心算對照：
+ *
+ *        輸入：0.000005 × 1200 = 0.0060
+ *        輸出：0.000015 ×  300 = 0.0045
+ *        ──────────────────────────────
+ *        合計                  = 0.0105 美金
+ *
+ *  ● 攔截
+ *
+ *        ArgumentCaptor<ApiUsageLog> savedLog = ArgumentCaptor.forClass(ApiUsageLog.class);
+ *        verify(apiUsageLogRepository).save(savedLog.capture());
+ *
+ *    ★ 為什麼要「攔截」？
+ *
+ *      因為 Repository 是假的，資料沒有真的進資料庫，
+ *      我們沒辦法「查出來看對不對」。
+ *      ArgumentCaptor 的作用是記住「剛才有人呼叫 save() 時，塞進去的是什麼」，
+ *      那個東西就是我們要檢查的算錢結果。
+ *
+ *  ● 檢查
+ *
+ *        assertThat(usageLog.getCostAmount()).isEqualByComparingTo("0.0105");
+ *
+ *    ★ 為什麼是 isEqualByComparingTo 而不是 isEqualTo？
+ *
+ *      BigDecimal 的 equals 連「小數位數」都要一樣才算相等：
+ *
+ *          0.0105 和 0.01050  →  equals    是 false（位數不同）
+ *                             →  compareTo 是 0    （數值相同）
+ *
+ *      我們在意的是金額本身，不是它被記成幾位小數，
+ *      所以要用 compareTo 這一系列的方法。用錯會得到看起來莫名其妙的失敗。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  三個測試各自在防什麼
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *    測試一  1200 / 300 token       防：算式寫錯（例如少加輸出那一項）
+ *    測試二  輸出用量 0（語音）      防：乘到 0 時算錯或爆掉
+ *                                      語音是「給多少字元收多少錢」，沒有輸出
+ *    測試三  叫假 Repository 爆炸    防：記帳失敗把使用者的查詢一起拖垮
+ *                                      翻譯已經成功了，不該為了記不成帳而失敗
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  這支測試「測不到」的東西
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  ⚠ 因為沒有啟動 Spring，ApiUsageRecorder 上的
+ *    @Transactional(REQUIRES_NEW) 那張貼紙在這裡是完全沒有生效的。
+ *
+ *    測試三只驗得到「try/catch 有沒有作用」，驗不到交易行為。
+ *    而那正好是那個檔案已知缺陷所在的位置 —— 見 ApiUsageRecorder 開頭的說明。
  */
 
 import com.tim.language_project.entity.ApiUsageLog;
@@ -42,34 +135,15 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
-/*
- * ── 貼紙：@ExtendWith(MockitoExtension.class) ────────────────────────────
- *
- *  跟 JUnit 說：「這個檔案要用 Mockito，麻煩你先把它準備好。」
- *  Mockito 是「做假物件」的工具，下面兩張貼紙才會生效。
- */
+// 這張貼紙的作用見開頭第 2 步。
 @ExtendWith(MockitoExtension.class)
 class ApiUsageRecorderTest {
 
-    /*
-     * @Mock = 「做一個假的 ApiUsageLogRepository 給我。」
-     *
-     * 這個假貨長得跟真的一模一樣（方法都在），但裡面完全是空的：
-     * 呼叫 save() 不會連資料庫、不會存任何東西，預設就回傳 null。
-     *
-     * 好處是，我們可以事後問它：「剛才有人拿什麼東西來叫你存？」
-     * ——那個「什麼東西」就是我們要檢查的算錢結果。
-     */
+    /** 假的資料庫入口，save() 不會真的存任何東西。見開頭第 5 步。 */
     @Mock
     private ApiUsageLogRepository apiUsageLogRepository;
 
-    /*
-     * @InjectMocks = 「做一個真的 ApiUsageRecorder，
-     *                  但把它需要的 Repository 換成上面那個假貨。」
-     *
-     * 被測的是真的 ApiUsageRecorder，執行的是它真正的程式碼，
-     * 只有「存資料庫」這一步被換掉了。
-     */
+    /** 真的被測物件，但裡面的 Repository 被換成上面那個假貨。 */
     @InjectMocks
     private ApiUsageRecorder apiUsageRecorder;
 

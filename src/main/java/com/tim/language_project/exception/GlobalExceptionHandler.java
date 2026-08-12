@@ -2,55 +2,141 @@ package com.tim.language_project.exception;
 
 /*
  * ══════════════════════════════════════════════════════════════════════════
- *  這個檔案是什麼？
+ *  這個檔案負責什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
  *  全專案的「錯誤總機」。任何請求處理到一半出錯，最後都會來到這裡，
- *  由它決定要回什麼狀態碼、什麼訊息給前端。
+ *  由它決定回什麼狀態碼、什麼訊息給前端。
  *
- *  沒有它的話，例外會變成 Spring 預設的錯誤頁面，格式不一、
- *  而且可能把內部訊息（連線字串、檔案路徑）直接印給使用者看。
+ *  下面用三個實際情境各走一遍。
  *
- * ── @RestControllerAdvice 是什麼？ ──────────────────────────────────────
+ * ══════════════════════════════════════════════════════════════════════════
+ *  情境一：使用者查一個不存在的單字
+ * ══════════════════════════════════════════════════════════════════════════
  *
- *  「這個類別負責處理所有 Controller 丟出來的例外。」
- *  不用在每個 Controller 寫 try/catch，Spring 會自動把例外送過來。
+ * ── 第 1 步｜你在網頁輸入「嘎逼」，按下查詢 ─────────────────────────────
  *
- * ── Spring 怎麼決定由誰處理？ ───────────────────────────────────────────
+ *    瀏覽器送出：GET /api/vocabulary?word=嘎逼
  *
- *  例外發生後，Spring 拿著它依序問一串處理器：
+ * ── 第 2 步｜Service 查資料庫，查不到 ───────────────────────────────────
  *
- *      1. ExceptionHandlerExceptionResolver  ← 這個檔案掛在這裡（最優先）
- *      2. ResponseStatusExceptionResolver
- *      3. DefaultHandlerExceptionResolver    ← Spring 內建（404、405 由它翻譯）
+ *        Optional<VocabularyDto> found = vocabularyRepository.findByChineseText("嘎逼");
+ *        // found 是空的
  *
- *  排前面的接走了，後面的就沒機會。這件事造成過一個 bug，見下方。
+ *        throw new BusinessException(ErrorCodeEnum.VOCABULARY_NOT_FOUND);
  *
- *  同一個檔案裡有兩個 @ExceptionHandler 時，Java 挑「型別最貼近」的那個：
- *  BusinessException 兩個都符合，但它比 Exception 貼近，所以走第一個。
+ *    注意它只丟了一個「錯誤碼」，沒有決定要回幾號、也沒有寫訊息。
+ *    那些是這個檔案的工作。
  *
- * ── 這裡修過的一個 bug（重要）─────────────────────────────────────────
+ * ── 第 3 步｜例外一路往上冒 ─────────────────────────────────────────────
  *
- *  原本兜底處理器寫成「任何例外都回 500」。但它排在第 1 順位，
- *  於是連 Spring 內建要回 404 的「網址不存在」也被它接走，變成 500 ——
- *  等於把「使用者打錯字」講成「伺服器爆炸」。
+ *        Service → Controller → Spring
  *
- *  修法是在兜底處理器裡先問一句「你身上有沒有帶狀態碼」
- *  （instanceof ErrorResponse），有的話就沿用它說的。
+ *    中間沒有任何人 try/catch，所以它一路衝到 Spring 手上。
  *
- * ── 何時執行 ────────────────────────────────────────────────────────────
+ * ── 第 4 步｜Spring 找人處理這個例外 ────────────────────────────────────
  *
- *   Service throw BusinessException  →  handleBusinessException
- *                                       → 照 ErrorCodeEnum 的定義回應
+ *    Spring 拿著這個例外，依序問三個處理器「這個誰要接？」：
  *
- *   網址打錯、方法用錯（Spring 丟的）→  handleUnexpectedException
- *                                       → 沿用 Spring 判定的 404 / 405
+ *        1. ExceptionHandlerExceptionResolver ← 這個檔案掛在這裡（最優先）
+ *        2. ResponseStatusExceptionResolver
+ *        3. DefaultHandlerExceptionResolver   ← Spring 內建（404、405 由它翻譯）
  *
- *   NullPointerException 之類         →  handleUnexpectedException
- *                                       → 500，訊息換成罐頭訊息，內情只進日誌
+ *    ★ 排前面的接走了，後面的就完全沒機會。這件事造成過一個 bug，見情境三。
  *
- *  測試檔：src/test/java/.../exception/GlobalExceptionHandlerTest.java
- *  相關：ErrorCodeEnum、BusinessException、ErrorResponseDto。
+ *    這個檔案標了 @RestControllerAdvice，意思是
+ *    「所有 Controller 丟出來的例外都送來我這」。
+ *
+ * ── 第 5 步｜挑哪一個方法接？ ───────────────────────────────────────────
+ *
+ *    這個檔案裡有兩個 @ExceptionHandler：
+ *
+ *        handleBusinessException(BusinessException)  ← 專接我們自己的
+ *        handleUnexpectedException(Exception)        ← 兜底，什麼都接
+ *
+ *    BusinessException 兩個都符合（它也是 Exception 的子孫），
+ *    Java 的規則是「挑型別最貼近的」，所以走第一個。
+ *
+ * ── 第 6 步｜handleBusinessException 做四件事 ───────────────────────────
+ *
+ *        ① 從例外身上拿出錯誤碼   → ErrorCodeEnum.VOCABULARY_NOT_FOUND
+ *        ② 產生一個 8 碼隨機 traceId → 例如 "8c3aa942"
+ *        ③ 寫日誌（含完整例外堆疊，只有伺服器看得到）
+ *        ④ 照錯誤碼的定義組出回應
+ *
+ *    ErrorCodeEnum 裡那一條長這樣：
+ *
+ *        VOCABULARY_NOT_FOUND(HttpStatus.NOT_FOUND, "找不到指定的單字")
+ *                                     ↑ 狀態碼      ↑ 給使用者看的訊息
+ *
+ * ── 第 7 步｜前端實際收到 ───────────────────────────────────────────────
+ *
+ *        HTTP 404
+ *        {
+ *          "code": "VOCABULARY_NOT_FOUND",
+ *          "message": "找不到指定的單字",
+ *          "traceId": "8c3aa942"
+ *        }
+ *
+ *    前端看 code 決定怎麼處理，把 message 直接顯示給使用者。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  情境二：程式真的爆炸了（例如資料庫斷線）
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *    丟出來的是 NullPointerException 之類，不是我們的 BusinessException，
+ *    所以第 5 步會挑到兜底的 handleUnexpectedException，回 500。
+ *
+ *    ★ 這裡最重要的一條規則：原始例外訊息絕對不能回給前端。
+ *
+ *      原始訊息可能長這樣（真的會出現在例外裡）：
+ *          "jdbc:sqlserver://localhost:1433;user=sa;password=Sqlserver123456"
+ *
+ *      這種東西回到瀏覽器，等於把資料庫密碼送給任何一個路人。
+ *      所以回應的 message 永遠換成罐頭訊息「系統發生非預期錯誤」，
+ *      真正的內容只寫進伺服器日誌。
+ *
+ *      使用者回報問題時，把畫面上的 traceId 唸給你，
+ *      你就能在日誌裡搜到那一筆，看到完整堆疊 —— 這就是 traceId 的用途。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  情境三：網址打錯（這裡修過一個 bug，別改回去）
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * ── 原本的錯誤行為 ──────────────────────────────────────────────────────
+ *
+ *    使用者的瀏覽器去要一個不存在的音檔：
+ *
+ *        GET /audio/abc123.mp3      （這個檔案不存在）
+ *
+ *    Spring 丟出 NoResourceFoundException，本來該由第 4 步的第 3 順位
+ *    翻譯成 404。但兜底處理器寫的是 @ExceptionHandler(Exception.class) ——
+ *    「任何例外我都接」，而它排在第 1 順位，於是連這個也被它接走，回了 500。
+ *
+ *    結果：使用者打錯字，被講成伺服器爆炸。
+ *    而且 ErrorCodeEnum 裡的 AUDIO_FILE_NOT_FOUND(404) 永遠不會出現。
+ *
+ * ── 現在的修法 ──────────────────────────────────────────────────────────
+ *
+ *    在兜底處理器的第一行先問一句「你身上有沒有自己帶狀態碼？」
+ *
+ *        if (exception instanceof ErrorResponse errorResponse) {
+ *            → 有 → 沿用它說的（404 / 405 / 400）
+ *        }
+ *        → 沒有 → 才是真的沒人料到的錯，回 500
+ *
+ *    ErrorResponse 是 Spring 那些「自己知道該回幾號」的例外共同的身分證。
+ *    網址打錯、HTTP 方法用錯、請求內容讀不懂，全都有這張身分證。
+ *
+ *    ★ 關鍵觀念：狀態碼是「最後處理它的人 return 什麼」決定的，
+ *      不是例外自己帶著就會生效。原本的寫法沒去問例外，直接寫死 500。
+ *
+ *    順帶把日誌也分開了：使用者打錯（4xx）只記 warn 且不印堆疊，
+ *    否則有人網址打錯或掃描機器人亂打，日誌就被一整篇 ERROR 洗版。
+ *
+ *  測試檔：src/test/java/com/tim/language_project/exception/
+ *          GlobalExceptionHandlerTest.java
+ *          （其中兩個測試就是專門守著情境三不要被改回去）
  */
 
 import com.tim.language_project.dto.response.ErrorResponseDto;

@@ -2,21 +2,107 @@ package com.tim.language_project.exception;
 
 /*
  * ══════════════════════════════════════════════════════════════════════════
- *  這個檔案在測什麼？
+ *  這個檔案在測什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
- *  測 GlobalExceptionHandler ——「程式出錯的時候，回給前端的東西對不對」。
+ *  測 GlobalExceptionHandler ——「程式出錯時，回給前端的東西對不對」。
  *
- *  要驗的有兩件事，每次都要一起看：
- *      (1) HTTP 狀態碼   → 前端用這個判斷「錯在誰」
- *      (2) 回傳的 JSON   → 前端用這個顯示訊息給使用者
+ *  每次都要一起看兩樣：
+ *      (1) HTTP 狀態碼   前端用這個判斷「錯在誰」
+ *      (2) 回傳的 JSON   前端用這個顯示訊息給使用者
  *
- *  狀態碼分兩大類，這個分別是本檔案的重點：
- *      4xx = 「你（前端 / 使用者）弄錯了」  例：404 網址不存在、405 用錯方式
- *      5xx = 「我（伺服器）壞了」          例：500 程式爆炸
+ *  狀態碼分兩大類，這個分別是整個檔案的重點：
+ *      4xx ＝「你（使用者）弄錯了」  例：404 網址不存在、405 用錯方式
+ *      5xx ＝「我（伺服器）壞了」    例：500 程式爆炸
  *
- *  把 4xx 的錯誤回報成 5xx，等於把「使用者打錯字」講成「伺服器爆炸」。
- *  下面的測試三、測試四就是在防這件事。
+ *  ★ 把 4xx 回報成 5xx，等於把「使用者打錯字」講成「伺服器爆炸」。
+ *    測試三、測試四就是在防這件事。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  流程：從你打指令到看見 Tests run: 4
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * ── 第 1 步｜你在終端機打指令 ───────────────────────────────────────────
+ *
+ *        .\mvnw.cmd -B test "-Dtest=GlobalExceptionHandlerTest"
+ *
+ * ── 第 2 步｜@WebMvcTest 只啟動「網頁請求」那一塊 ───────────────────────
+ *
+ *        @DataJpaTest  只啟動「資料庫」那一塊
+ *        @WebMvcTest   只啟動「網頁請求」那一塊  ← 這個檔案
+ *
+ *    兩個都叫「切片測試」——只啟動 Spring 的一部分就停，快得多。
+ *    所以這支測試不連資料庫、不需要 Docker、不需要 OpenAI 金鑰。
+ *
+ *    GlobalExceptionHandler 標了 @RestControllerAdvice，屬於網頁那一塊，
+ *    會被自動載入，不用手動指定。
+ *
+ * ── 第 3 步｜為什麼要自己造一個假的 Controller ──────────────────────────
+ *
+ *        @Import(GlobalExceptionHandlerTest.TestController.class)
+ *
+ *    例外處理器要有東西「丟例外」給它接，才測得到。
+ *    但這個專案現在還沒有任何真的 Controller（Task 9 才會做）。
+ *
+ *    所以檔案最下面自己造了一個 TestController，
+ *    它唯一的用途就是「按照要求丟出指定的例外」。
+ *    它在 src/test/java 底下，永遠不會被打包上線。
+ *
+ * ── 第 4 步｜測試一實際做了什麼 ─────────────────────────────────────────
+ *
+ *        mockMvc.perform(get("/test/business-error"))
+ *
+ *    MockMvc 是「假的瀏覽器」。
+ *    沒有它的話，要測一個網址回什麼，得先真的把網站啟動起來、佔一個 port、
+ *    再用工具去打它。MockMvc 讓你直接在記憶體裡問 Spring：
+ *    「如果有人打這個網址，你會回什麼？」
+ *
+ * ── 第 5 步｜這一行按下去，內部真正跑了什麼 ─────────────────────────────
+ *
+ *    mockMvc.perform(get("/test/business-error"))
+ *      │
+ *      ├→ Spring 找到 TestController 的 throwBusinessException 方法
+ *      │     └─ throw new BusinessException(ErrorCodeEnum.VOCABULARY_NOT_FOUND);
+ *      │
+ *      ├→ 例外往上冒，Spring 依序問處理器「誰要接？」
+ *      │     └─ GlobalExceptionHandler 排第一順位，它的
+ *      │        handleBusinessException 接走（型別最貼近）
+ *      │
+ *      ├→ 該方法從例外拿出錯誤碼、產生 traceId、寫日誌、組回應
+ *      │
+ *      └→ MockMvc 收到：
+ *             HTTP 404
+ *             { "code": "VOCABULARY_NOT_FOUND",
+ *               "message": "找不到指定的單字",
+ *               "traceId": "8c3aa942" }
+ *
+ * ── 第 6 步｜檢查 ───────────────────────────────────────────────────────
+ *
+ *        .andExpect(status().isNotFound())                    ← 狀態碼是 404
+ *        .andExpect(jsonPath("$.code").value("VOCABULARY_NOT_FOUND"))
+ *        .andExpect(jsonPath("$.traceId").isNotEmpty())
+ *
+ *    jsonPath("$.code") 的意思是「回傳的 JSON 裡，最外層那個 code 欄位」。
+ *    $ 代表最外層，點號往裡面鑽。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  四個測試各自在防什麼
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *    測試一  丟 BusinessException     防：錯誤碼指定的狀態與訊息沒被照著回
+ *
+ *    測試二  丟含連線字串的例外        防：★把資料庫密碼回給前端★
+ *                                        假 Controller 丟的例外訊息裡故意藏了
+ *                                        "jdbc:sqlserver://...password=..."，
+ *                                        這支測試主張它不會出現在回應裡
+ *
+ *    測試三  打一個不存在的網址        防：404 被兜底處理器蓋成 500
+ *    測試四  用錯 HTTP 方法（POST）    防：405 被兜底處理器蓋成 500
+ *
+ *    ★ 測試三、四是「回歸測試」—— 這兩件事真的發生過。
+ *      修好之前它們是紅的（Status expected:<404> but was:<500>），
+ *      現在它們守著那個修正不被改回去。
+ *      詳細經過見 GlobalExceptionHandler 開頭的「情境三」。
  */
 
 import com.tim.language_project.enums.ErrorCodeEnum;
@@ -34,40 +120,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/*
- * ── 貼紙一：@WebMvcTest ──────────────────────────────────────────────────
- *
- *  跟 @DataJpaTest 是兄弟，一樣是「切片測試」，只是切的是另一塊：
- *
- *      @DataJpaTest → 只啟動「資料庫」那一塊
- *      @WebMvcTest  → 只啟動「網頁請求」那一塊
- *
- *  所以這支測試不連資料庫、不需要 Docker、不需要 OpenAI 金鑰，啟動很快。
- *  @ControllerAdvice（也就是 GlobalExceptionHandler）屬於網頁那一塊，
- *  會被自動載入，不用手動指定。
- *
- * ── 貼紙二：@Import ──────────────────────────────────────────────────────
- *
- *  例外處理器要有東西「丟例外」給它接，才測得到。
- *  但這個專案現在還沒有任何 Controller（Task 9 才會做）。
- *
- *  所以這裡自己造一個假的 Controller（檔案最下面的 TestController），
- *  它唯一的用途就是「按照要求丟出指定的例外」。
- *  @Import 就是跟 Spring 說：「這個假 Controller 也一起載入。」
- *
- *  它放在 src/test/java 底下，永遠不會被打包上線。
- */
+// 這兩張貼紙的作用見開頭第 2、3 步。
 @WebMvcTest
 @Import(GlobalExceptionHandlerTest.TestController.class)
 class GlobalExceptionHandlerTest {
 
-    /*
-     * MockMvc 是「假的瀏覽器」。
-     *
-     * 沒有它的話，要測一個網址回什麼，得先真的把網站啟動起來、
-     * 佔一個 port、再用工具去打它。MockMvc 讓你跳過這些，
-     * 直接在記憶體裡問 Spring：「如果有人打這個網址，你會回什麼？」
-     */
+    /** 假的瀏覽器，不用真的啟動網站就能問「有人打這個網址，你會回什麼」。 */
     @Autowired
     private MockMvc mockMvc;
 
