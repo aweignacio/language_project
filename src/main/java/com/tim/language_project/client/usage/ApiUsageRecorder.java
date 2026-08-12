@@ -62,7 +62,7 @@ package com.tim.language_project.client.usage;
  *        ApiUsageLog usageLog = new ApiUsageLog();   ← 一個空白的「列」
  *        usageLog.setProvider(...);                  ← 一格一格填
  *        ...
- *        apiUsageLogRepository.save(usageLog);       ← 交給 Repository 寫進資料庫
+ *        apiUsageLogWriter.write(usageLog);          ← 交給 Writer 在獨立交易裡寫入
  *
  * ── 第 5 步｜資料庫的 api_usage_log 表多出一列 ──────────────────────────
  *
@@ -76,7 +76,7 @@ package com.tim.language_project.client.usage;
  *    整個過程對使用者是隱形的 —— 這一點決定了下面兩個設計。
  *
  * ══════════════════════════════════════════════════════════════════════════
- *  設計一：為什麼要 @Transactional(REQUIRES_NEW)
+ *  設計一：為什麼寫入要交給 ApiUsageLogWriter
  * ══════════════════════════════════════════════════════════════════════════
  *
  *  先解釋「交易」：一組資料庫動作，要嘛全部成功、要嘛全部當作沒發生。
@@ -93,6 +93,9 @@ package com.tim.language_project.client.usage;
  *  REQUIRES_NEW 的意思是「我要自己開一個交易，不要跟呼叫端綁在一起」。
  *  兩邊的成敗互不影響。
  *
+ *  而那張貼紙必須貼在「另一個 Bean」上才會生效 —— 同一個類別內部呼叫自己的方法
+ *  會跳過 Spring 的代理，交易完全不會啟動。詳見 ApiUsageLogWriter 的說明。
+ *
  * ══════════════════════════════════════════════════════════════════════════
  *  設計二：為什麼整段包在 try/catch 裡
  * ══════════════════════════════════════════════════════════════════════════
@@ -103,56 +106,53 @@ package com.tim.language_project.client.usage;
  *  為了「記不成帳」而讓使用者的查詢失敗，是本末倒置。
  *  所以這裡把例外吃掉，只寫進日誌。
  *
- *  ⚠ 已知缺陷（尚未修，見計畫文件已知偏離第 8 條）
+ *  ★ try/catch 為什麼一定要在「交易外面」（Task 8 修正過的地方）
  *
- *    這個 try/catch 保護得不完整。因為它寫在交易方法「內部」：
+ *    原本這個方法自己標了 @Transactional，try/catch 寫在裡面，擋不住：
  *
- *        save 失敗 → JPA 把這個交易標記為「只能回滾」
+ *        save 失敗 → JPA 把交易標記為「只能回滾」
  *                  → catch 把例外吃掉，方法正常結束
- *                  → Spring 接著要提交交易，發現已被標記
+ *                  → Spring 接著要提交，發現已被標記
  *                  → 丟出 UnexpectedRollbackException
- *                  → ★ 這個例外還是傳到呼叫端了
+ *                  → ★ 例外還是傳到呼叫端了，等於沒擋住
  *
- *    正規寫法是拆成兩層：外層不帶交易、負責 try/catch，
- *    內層帶 REQUIRES_NEW 負責寫入。Task 8 串接 Service 時一併處理。
+ *    現在拆成兩層：這個方法不帶交易、只負責 try/catch，
+ *    實際寫入交給 ApiUsageLogWriter（它才帶 REQUIRES_NEW）。
+ *    這樣連「提交階段才失敗」也會落進下面的 catch。
  *
  *  測試檔：src/test/java/com/tim/language_project/client/usage/
  *          ApiUsageRecorderTest.java
- *          （注意：那支測試沒有啟動 Spring，所以 @Transactional 不生效，
- *            它只驗得到 try/catch 有沒有作用，驗不到交易行為）
+ *          （注意：那支測試沒有啟動 Spring，所以驗得到的是算錢與 try/catch，
+ *            「交易有沒有真的獨立」那件事單元測試驗不到，要真的跑起來才看得出來）
  */
 
 import com.tim.language_project.entity.ApiUsageLog;
 import com.tim.language_project.enums.AiProviderEnum;
 import com.tim.language_project.enums.AiServiceTypeEnum;
 import com.tim.language_project.enums.UsageUnitTypeEnum;
-import com.tim.language_project.repository.ApiUsageLogRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 
 /**
  * 記錄每次呼叫外部服務的用量與費用。
- * 使用獨立交易（REQUIRES_NEW），這樣記帳失敗不會把呼叫端一起回滾，
- * 呼叫端失敗時這筆紀錄也仍然留得下來。
+ * 這個方法本身「不帶交易」，交易在 ApiUsageLogWriter 那一層 ——
+ * try/catch 必須待在交易邊界外面才擋得住提交階段的失敗，理由見該檔說明。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class ApiUsageRecorder {
 
-    private final ApiUsageLogRepository apiUsageLogRepository;
+    private final ApiUsageLogWriter apiUsageLogWriter;
 
     /**
      * 記錄一次呼叫。
      * 費用 = 輸入單價 × 輸入用量 ＋ 輸出單價 × 輸出用量。
      * 單價由呼叫端傳入而非在這裡查表，紀錄才會反映「呼叫當下」的價格。
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(AiProviderEnum provider,
                        AiServiceTypeEnum serviceType,
                        String modelName,
@@ -178,9 +178,10 @@ public class ApiUsageRecorder {
             usageLog.setCostAmount(cost);
             usageLog.setSuccess(success);
 
-            apiUsageLogRepository.save(usageLog);
+            apiUsageLogWriter.write(usageLog);
         } catch (Exception exception) {
             // 記帳只是給我們自己看的，不構成讓使用者請求失敗的理由。
+            // 這個 catch 在交易外面，所以連「提交時才失敗」也接得住。
             log.error("failed to record api usage for {} {}", provider, serviceType, exception);
         }
     }

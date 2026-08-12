@@ -13,5 +13,18 @@ public record TranslationResult(
         List<TranslationWord> words,
         String modelName,
         long inputTokens,
-        long outputTokens) {
+        long outputTokens,
+        boolean translatable) {
+
+    /**
+     * 「這段輸入根本翻不出來」的結果，例如亂碼、無意義的字。
+     * 由模型自己判斷並回報，因為我們沒有字典可以比對，判斷權本來就只在它手上。
+     * 用量仍要帶進來 —— 那次呼叫確實發生過、也確實被收費了。
+     */
+    public static TranslationResult untranslatable(String modelName,
+                                                   long inputTokens,
+                                                   long outputTokens) {
+        return new TranslationResult(null, null, List.of(),
+                modelName, inputTokens, outputTokens, false);
+    }
 }

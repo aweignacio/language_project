@@ -209,6 +209,13 @@ public class OpenAiTranslationClient implements TranslationClient {
             - 輸入若只有一個詞，words 就只有一個元素
             - 詞的順序必須與泰文語序一致
             - 每個詞的泰文必須是該詞單獨使用時的寫法
+
+            translatable 欄位的規則（很重要，不要猜）：
+            - 輸入是有意義、翻得出來的內容（包含數字，例如「5」就是「ห้า」）→ 設為 true
+            - 輸入是亂碼、無意義的字串、或你無法確定它是什麼意思 → 設為 false，
+              並且 thaiText、romanization 留空、words 給空陣列
+            - 寧可誠實回報 false，也不要硬湊一個看起來合理的答案。
+              使用者是學習者，一個編造出來的詞會被他背起來。
             """;
 
     private final ChatClient chatClient;
@@ -248,12 +255,23 @@ public class OpenAiTranslationClient implements TranslationClient {
             long inputTokens = toTokenCount(Objects.isNull(usage) ? null : usage.getPromptTokens());
             long outputTokens = toTokenCount(Objects.isNull(usage) ? null : usage.getCompletionTokens());
 
-            if (Objects.isNull(payload)
-                    || ObjectUtils.isEmpty(payload.thaiText())
+            if (Objects.isNull(payload)) {
+                // 連物件都沒轉出來，這次呼叫仍然被收費了，用量照記但標記失敗。
+                recordUsage(inputTokens, outputTokens, false);
+                throw new BusinessException(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
+            }
+
+            // 模型自己說「這翻不出來」。這是正常的回答不是錯誤，
+            // 呼叫也確實成功了，所以記成功，由呼叫端決定要怎麼回應使用者。
+            if (!payload.translatable()) {
+                recordUsage(inputTokens, outputTokens, true);
+                return TranslationResult.untranslatable(modelName, inputTokens, outputTokens);
+            }
+
+            if (ObjectUtils.isEmpty(payload.thaiText())
                     || ObjectUtils.isEmpty(payload.romanization())
                     || ObjectUtils.isEmpty(payload.words())) {
-                // 回應格式不對，但這次呼叫確實發生過、也確實被收費了，
-                // 所以用量照記，只是標記為失敗。
+                // 說翻得出來卻沒給內容，這是格式錯誤。
                 recordUsage(inputTokens, outputTokens, false);
                 throw new BusinessException(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
             }
@@ -267,7 +285,7 @@ public class OpenAiTranslationClient implements TranslationClient {
 
             return new TranslationResult(
                     payload.thaiText(), payload.romanization(), words,
-                    modelName, inputTokens, outputTokens);
+                    modelName, inputTokens, outputTokens, true);
 
         } catch (BusinessException businessException) {
             // 已經是我們自己的錯誤碼，原封不動往外拋，不要被下面那個 catch 蓋成別的碼。
@@ -322,7 +340,8 @@ public class OpenAiTranslationClient implements TranslationClient {
     private record TranslationPayload(
             String thaiText,
             String romanization,
-            List<WordPayload> words) {
+            List<WordPayload> words,
+            boolean translatable) {
     }
 
     private record WordPayload(

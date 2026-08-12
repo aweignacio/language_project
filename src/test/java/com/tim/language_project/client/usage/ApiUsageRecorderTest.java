@@ -37,16 +37,20 @@ package com.tim.language_project.client.usage;
  *    這裡要驗的是「算式對不對」，不是「存不存得進去」，
  *    所以資料庫用假的就好 —— 不用等、不用開 Docker。
  *
- * ── 第 5 步｜假的 Repository 是怎麼被塞進去的 ───────────────────────────
+ * ── 第 5 步｜假的寫入者是怎麼被塞進去的 ─────────────────────────────────
  *
- *        @Mock         ApiUsageLogRepository apiUsageLogRepository;
- *        @InjectMocks  ApiUsageRecorder      apiUsageRecorder;
+ *        @Mock         ApiUsageLogWriter apiUsageLogWriter;
+ *        @InjectMocks  ApiUsageRecorder  apiUsageRecorder;
  *
- *    @Mock       ＝ 做一個假的 Repository。方法都在，但裡面完全是空的：
- *                   呼叫 save() 不會連資料庫、不會存任何東西。
+ *    @Mock       ＝ 做一個假的 Writer。方法都在，但裡面完全是空的：
+ *                   呼叫 write() 不會連資料庫、不會存任何東西。
  *
  *    @InjectMocks ＝ 做一個「真的」ApiUsageRecorder，
- *                   但把它需要的 Repository 換成上面那個假貨。
+ *                   但把它需要的 Writer 換成上面那個假貨。
+ *
+ *    （為什麼寫入要獨立成 ApiUsageLogWriter 而不是直接用 Repository？
+ *      因為 @Transactional 必須貼在「另一個 Bean」上才會生效。
+ *      詳見 ApiUsageLogWriter 開頭的說明。）
  *
  *    ★ 被測的是真的 ApiUsageRecorder，跑的是它真正的算錢程式碼，
  *      只有「存資料庫」那一步被換掉了。
@@ -71,11 +75,11 @@ package com.tim.language_project.client.usage;
  *  ● 攔截
  *
  *        ArgumentCaptor<ApiUsageLog> savedLog = ArgumentCaptor.forClass(ApiUsageLog.class);
- *        verify(apiUsageLogRepository).save(savedLog.capture());
+ *        verify(apiUsageLogWriter).write(savedLog.capture());
  *
  *    ★ 為什麼要「攔截」？
  *
- *      因為 Repository 是假的，資料沒有真的進資料庫，
+ *      因為 Writer 是假的，資料沒有真的進資料庫，
  *      我們沒辦法「查出來看對不對」。
  *      ArgumentCaptor 的作用是記住「剛才有人呼叫 save() 時，塞進去的是什麼」，
  *      那個東西就是我們要檢查的算錢結果。
@@ -101,25 +105,24 @@ package com.tim.language_project.client.usage;
  *    測試一  1200 / 300 token       防：算式寫錯（例如少加輸出那一項）
  *    測試二  輸出用量 0（語音）      防：乘到 0 時算錯或爆掉
  *                                      語音是「給多少字元收多少錢」，沒有輸出
- *    測試三  叫假 Repository 爆炸    防：記帳失敗把使用者的查詢一起拖垮
+ *    測試三  叫假 Writer 爆炸        防：記帳失敗把使用者的查詢一起拖垮
  *                                      翻譯已經成功了，不該為了記不成帳而失敗
  *
  * ══════════════════════════════════════════════════════════════════════════
  *  這支測試「測不到」的東西
  * ══════════════════════════════════════════════════════════════════════════
  *
- *  ⚠ 因為沒有啟動 Spring，ApiUsageRecorder 上的
- *    @Transactional(REQUIRES_NEW) 那張貼紙在這裡是完全沒有生效的。
+ *  ⚠ 因為沒有啟動 Spring，ApiUsageLogWriter 上的
+ *    @Transactional(REQUIRES_NEW) 在這裡完全沒有生效。
  *
- *    測試三只驗得到「try/catch 有沒有作用」，驗不到交易行為。
- *    而那正好是那個檔案已知缺陷所在的位置 —— 見 ApiUsageRecorder 開頭的說明。
+ *    測試三只驗得到「try/catch 有沒有作用」，驗不到交易是否真的獨立。
+ *    那件事要真的把應用程式跑起來才看得出來。
  */
 
 import com.tim.language_project.entity.ApiUsageLog;
 import com.tim.language_project.enums.AiProviderEnum;
 import com.tim.language_project.enums.AiServiceTypeEnum;
 import com.tim.language_project.enums.UsageUnitTypeEnum;
-import com.tim.language_project.repository.ApiUsageLogRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -133,17 +136,17 @@ import java.math.BigDecimal;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 
 // 這張貼紙的作用見開頭第 2 步。
 @ExtendWith(MockitoExtension.class)
 class ApiUsageRecorderTest {
 
-    /** 假的資料庫入口，save() 不會真的存任何東西。見開頭第 5 步。 */
+    /** 假的寫入者，write() 不會真的存任何東西。見開頭第 5 步。 */
     @Mock
-    private ApiUsageLogRepository apiUsageLogRepository;
+    private ApiUsageLogWriter apiUsageLogWriter;
 
-    /** 真的被測物件，但裡面的 Repository 被換成上面那個假貨。 */
+    /** 真的被測物件，但裡面的 Writer 被換成上面那個假貨。 */
     @InjectMocks
     private ApiUsageRecorder apiUsageRecorder;
 
@@ -178,11 +181,11 @@ class ApiUsageRecorderTest {
          * ArgumentCaptor 是「攔截器」：
          * 它會記住剛才有人呼叫 save() 時，塞進去的參數是什麼。
          *
-         * 因為 Repository 是假的，資料沒有真的進資料庫，
+         * 因為 Writer 是假的，資料沒有真的進資料庫，
          * 所以只能用這個方式檢查「本來要存進去的內容」。
          */
         ArgumentCaptor<ApiUsageLog> savedLog = ArgumentCaptor.forClass(ApiUsageLog.class);
-        org.mockito.Mockito.verify(apiUsageLogRepository).save(savedLog.capture());
+        org.mockito.Mockito.verify(apiUsageLogWriter).write(savedLog.capture());
 
         ApiUsageLog usageLog = savedLog.getValue();
 
@@ -238,7 +241,7 @@ class ApiUsageRecorderTest {
                 true);
 
         ArgumentCaptor<ApiUsageLog> savedLog = ArgumentCaptor.forClass(ApiUsageLog.class);
-        org.mockito.Mockito.verify(apiUsageLogRepository).save(savedLog.capture());
+        org.mockito.Mockito.verify(apiUsageLogWriter).write(savedLog.capture());
 
         assertThat(savedLog.getValue().getCostAmount()).isEqualByComparingTo("0.0075");
     }
@@ -252,18 +255,25 @@ class ApiUsageRecorderTest {
      * 翻譯結果已經拿到了，記帳只是我們自己要看的帳，
      * 為了記不成帳而讓使用者的查詢失敗，是本末倒置。
      *
-     * 所以這支測試主張：就算 save 爆炸，record 也不可以把例外往外丟。
+     * 所以這支測試主張：就算寫入爆炸，record 也不可以把例外往外丟。
      *
      * ⚠ 這支測試只驗得到 ApiUsageRecorder 裡的 try/catch 有沒有作用。
-     *   它沒有啟動 Spring，所以 @Transactional(REQUIRES_NEW) 那張貼紙
-     *   在這個測試裡是完全沒有生效的，交易行為驗不到。
+     *   它沒有啟動 Spring，所以 ApiUsageLogWriter 上的
+     *   @Transactional(REQUIRES_NEW) 在這裡沒有生效，交易是否獨立驗不到。
      */
     @Test
     @DisplayName("寫入用量紀錄失敗時不可將例外往外拋")
     void shouldNotPropagateExceptionWhenSaveFails() {
-        // 叫假的 Repository：「等一下有人呼叫你的 save，你就給我爆炸。」
-        given(apiUsageLogRepository.save(any(ApiUsageLog.class)))
-                .willThrow(new RuntimeException("資料庫連線中斷"));
+        /*
+         * 叫假的 Writer：「等一下有人呼叫你的 write，你就給我爆炸。」
+         *
+         * 這裡的寫法跟前面幾個測試不一樣，因為 write() 是 void 方法：
+         *     有回傳值 → given(物件.方法()).willReturn(...)
+         *     void     → willThrow(...).given(物件).方法(...)
+         * void 方法沒有回傳值可以包進 given()，所以順序要顛倒過來。
+         */
+        willThrow(new RuntimeException("資料庫連線中斷"))
+                .given(apiUsageLogWriter).write(any(ApiUsageLog.class));
 
         // 我主張：即使如此，這一段執行完不會有任何例外冒出來。
         assertThatCode(() -> apiUsageRecorder.record(

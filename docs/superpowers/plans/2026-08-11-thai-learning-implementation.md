@@ -30,13 +30,17 @@
 | **Task 4：錯誤處理骨架** | 完成，分支 `feat/error_handle`（commit `784b34b`、`72542d9`），測試 9 項全過 |
 | **Task 5：外部服務介面與用量記錄** | 完成，分支 `feat/client-contracts`（commit `043b4c6`、`1f5af44`），測試 12 項全過 |
 | **Task 6：OpenAI 翻譯實作** | 完成，分支 `feat/openai-translation`（commit `d1538d2`、`e2400f9`），測試 16 項全過 |
-| **Task 7：OpenAI 語音實作與音檔儲存** | 程式完成、測試 21 項全過，**尚未 commit**，等 Awei 確認 |
+| **Task 7：OpenAI 語音實作與音檔儲存** | 完成，分支 `feat/openai-speech`（commit `deb4ce7`），測試 21 項全過 |
+| **Task 8：Service 主流程** | 程式完成、測試 29 項全過，**尚未 commit**，等 Awei 確認 |
 
-**下一個要做的是 Task 8。**
+**下一個要做的是 Task 9。**
+
+**注意：Task 1-7 已全部合併回 `main`（快進），本地與 origin/main 皆已同步至 `deb4ce7` 之後。**
 
 **分支現況：** 逐層疊加，皆未推上 origin、未合併回 main。
 `main` → `feat/enums` → `feat/entities` → `feat/repositories` → `feat/error_handle`
 → `feat/client-contracts` → `feat/openai-translation` → `feat/openai-speech`
+→ `feat/translation-service`（Task 8，未提交）
 （Task 4 分支名為 `feat/error_handle`，與本文件寫的 `feat/error-handling` 不同，以實際分支為準。）
 
 ### 執行過程中發現的偏離（本文件其餘部分尚未修正，實作時以此處為準）
@@ -80,12 +84,14 @@
    IDE 會在背景把沒跑 Lombok 的壞 class 寫進 `target/`，Maven 判定「不用重編」而沿用，
    產生看似無法解釋的失敗。IDE 在 Lombok 相關程式上標的紅字同樣不是真錯誤，一律以 Maven 為準。
 
-8. **`ApiUsageRecorder` 的 try/catch 保護不完整（尚未處理，待 Awei 決定）。**
+8. **`ApiUsageRecorder` 的 try/catch 保護不完整 —— 已於 Task 8 修正。**
    `try/catch` 寫在 `@Transactional(REQUIRES_NEW)` 方法「內部」。若 `save` 失敗，
    JPA 會把該交易標記為 rollback-only，方法正常返回後 Spring 提交時仍會丟出
    `UnexpectedRollbackException`，一樣會傳到呼叫端 —— 與「記帳絕不影響主流程」的原意不符。
-   一般寫法是拆成兩個方法：外層不帶交易、負責 try/catch，內層帶 `REQUIRES_NEW` 負責寫入。
-   Task 8 串接 Service 時可一併處理。
+   修法：拆成兩個 Bean —— `ApiUsageRecorder` 不帶交易、只負責算錢與 try/catch，
+   實際寫入交給新的 `ApiUsageLogWriter`（它才帶 `REQUIRES_NEW`）。
+   兩件事必須同時成立才有效：**交易貼紙要在另一個 Bean 上**（同類別內部呼叫會跳過代理），
+   **try/catch 要在交易邊界外面**（否則擋不住提交階段才丟出的 `UnexpectedRollbackException`）。
 
 9. **Task 6 改用真實 token 用量，不採計畫的字數估算。**
    計畫原本以 `sourceText.length()` 當 token 數，是猜的，帳會對不起來。
@@ -146,6 +152,32 @@
 15. **Task 7 加了 `OpenAiSpeechClientTest`（5 項）。**
     把 `TextToSpeechModel` 換成假物件，並用 JUnit 的 `@TempDir` 當音檔資料夾，
     不會寫進專案的 `audio/`，測完自動刪。
+
+16. **Task 8 的輸入驗證改用 AI 判斷，移除計畫的漢字正規表示式。**
+    計畫原本寫 `if (!sourceText.matches(".*[\p{IsHan}].*"))` 就丟 `INPUT_UNSUPPORTED_CONTENT`。
+    這個做法剛好相反：**「5」會被擋掉**（沒有漢字，但它翻得出來是 ห้า），
+    **「嘎逼」照樣通過**（兩個都是漢字，但翻不出來）。已依 Awei 的決定（第 11 條）改為：
+
+    - `TranslationResult` 新增 `boolean translatable` 欄位
+    - `OpenAiTranslationClient` 的 `TranslationPayload` 同步新增該欄位，
+      系統提示詞明確要求「亂碼或無法確定意思 → 設 false，且不要硬湊答案」
+    - 模型回 false 時，client 記錄用量為**成功**（它確實正常回答了），
+      回傳 `TranslationResult.untranslatable(...)`
+    - Service 收到 false → 丟 `INPUT_UNSUPPORTED_CONTENT`，**不生語音、不寫任何資料表**
+
+    ⚠ `translatable` 是原始型別 `boolean`。若模型漏了這個欄位，Jackson 會給 false，
+    等於把正常的翻譯誤判為「翻不出來」。結構化輸出的 schema 會要求該欄位存在，
+    但這是目前唯一沒有測試涵蓋的假設，實測時要留意。
+
+17. **Task 8 加了兩個計畫沒有的測試（共 7 項）。**
+    - 「單字庫已有該詞時不呼叫翻譯服務」—— 守住第二道省錢關卡
+    - 「模型回報無法翻譯時不得寫入資料庫」—— 守住第 16 條那道防線
+
+18. **【已知限制，尚未處理】同一句話同時被查兩次會撞唯一鍵。**
+    兩個請求同時進來、都沒命中快取、都去翻譯、都寫入 →
+    `translation_query.source_text` 的唯一限制會讓其中一筆失敗，回 500。
+    單人使用不會遇到，之後若要多人使用需處理（捕捉 `DataIntegrityViolationException`
+    後改讀既有那筆即可）。
 
 ### 執行方式
 
@@ -1955,7 +1987,10 @@ EOF
 
 ---
 
-# Task 8：Service 主流程　⬅ 下一個
+# Task 8：Service 主流程　✅ 已完成
+
+> Step 4b 的 `validateAndNormalize` 已移除漢字正規表示式檢查，改用 AI 判斷，
+> 理由見「已知偏離」第 16 條。另外一併修正了第 8 條的交易缺陷。
 
 **分支：** `feat/translation-service`
 
@@ -2399,7 +2434,7 @@ EOF
 
 ---
 
-# Task 9：Controller
+# Task 9：Controller　⬅ 下一個
 
 **分支：** `feat/translation-controller`
 

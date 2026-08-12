@@ -212,12 +212,14 @@ class OpenAiTranslationClientTest {
                     {"chineseText": "想", "thaiText": "อยาก", "romanization": "yàak"},
                     {"chineseText": "喝", "thaiText": "ดื่ม", "romanization": "dùuem"},
                     {"chineseText": "酒", "thaiText": "เหล้า", "romanization": "lâo"}
-                  ]
+                  ],
+                  "translatable": true
                 }
                 """, 120, 45);
 
         TranslationResult result = openAiTranslationClient.translate("我想喝酒");
 
+        assertThat(result.translatable()).isTrue();
         assertThat(result.thaiText()).isEqualTo("ฉันอยากดื่มเหล้า");
         assertThat(result.romanization()).isEqualTo("chǎn yàak dùuem lâo");
         assertThat(result.modelName()).isEqualTo("gpt-4o-mini");
@@ -245,7 +247,8 @@ class OpenAiTranslationClientTest {
                 {
                   "thaiText": "น้ำ",
                   "romanization": "náam",
-                  "words": [{"chineseText": "水", "thaiText": "น้ำ", "romanization": "náam"}]
+                  "words": [{"chineseText": "水", "thaiText": "น้ำ", "romanization": "náam"}],
+                  "translatable": true
                 }
                 """, 120, 45);
 
@@ -278,7 +281,8 @@ class OpenAiTranslationClientTest {
                 {
                   "thaiText": "",
                   "romanization": "",
-                  "words": []
+                  "words": [],
+                  "translatable": true
                 }
                 """, 80, 10);
 
@@ -292,6 +296,48 @@ class OpenAiTranslationClientTest {
                 eq(80L), eq(10L),
                 any(), any(),
                 eq(false));
+    }
+
+    /*
+     * ═══ 測試五：模型說「這翻不出來」時，不可硬湊一個答案 ═══════════════
+     *
+     * 情境：使用者輸入「嘎逼」這種不存在的詞。
+     *
+     * 這是整個專案最重要的一道防線。語言模型的本性是「盡量給出一個像樣的答案」，
+     * 它會拼一個發音接近的泰文給你，而且講得跟真的一樣。
+     * 那個編造出來的詞會被永久寫進快取、沉澱進單字庫，然後被使用者背起來。
+     *
+     * 所以我們在提示詞裡正式跟模型要一個判斷（translatable 欄位），
+     * 它說 false 時，這裡主張：
+     *   - 回傳的結果標記為「翻不出來」，由 Service 決定要回什麼錯誤給使用者
+     *   - 但用量要記成「成功」—— 模型確實正常回答了，那是一次有效的呼叫，
+     *     只是答案是「我翻不出來」。錢照樣要付。
+     */
+    @Test
+    @DisplayName("模型回報無法翻譯時應標記為不可翻譯，且用量記為成功")
+    void shouldMarkResultAsUntranslatableWhenModelSaysSo() {
+        givenModelReplies("""
+                {
+                  "thaiText": "",
+                  "romanization": "",
+                  "words": [],
+                  "translatable": false
+                }
+                """, 95, 8);
+
+        TranslationResult result = openAiTranslationClient.translate("嘎逼");
+
+        // 我主張：沒有丟例外，而是回一個標記為「翻不出來」的結果
+        assertThat(result.translatable()).isFalse();
+        assertThat(result.thaiText()).isNull();
+        assertThat(result.words()).isEmpty();
+
+        // 我主張：這次呼叫算成功（模型正常回答了），用量照實記
+        verify(apiUsageRecorder).record(
+                any(), any(), anyString(), any(),
+                eq(95L), eq(8L),
+                any(), any(),
+                eq(true));
     }
 
     /*
