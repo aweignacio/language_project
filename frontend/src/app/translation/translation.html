@@ -1,0 +1,88 @@
+<main class="page">
+
+  <header class="page__header">
+    <h1 class="page__title">中泰翻譯查詢</h1>
+    <p class="page__subtitle">輸入中文，查泰文、羅馬拼音與逐詞對照</p>
+  </header>
+
+  <!-- 查詢列 -->
+  <form class="search" (submit)="$event.preventDefault(); search()">
+    <input
+      class="search__input"
+      type="text"
+      maxlength="100"
+      placeholder="例如：我想喝酒"
+      [value]="sourceText()"
+      (input)="onInput($event)"
+      [disabled]="loading()" />
+
+    <button class="search__button" type="submit" [disabled]="loading()">
+      {{ loading() ? '查詢中…' : '查詢' }}
+    </button>
+  </form>
+
+  <!-- 紅色錯誤：真的出事了 -->
+  @if (errorMessage()) {
+    <p class="message message--error">{{ errorMessage() }}</p>
+  }
+
+  <!-- 灰色提示：AI 說翻不出來，這是正常結果 -->
+  @if (noticeMessage()) {
+    <p class="message message--notice">{{ noticeMessage() }}</p>
+  }
+
+  <!-- 查詢結果 -->
+  @if (result(); as translation) {
+    <section class="result">
+
+      <div class="result__head">
+        <span class="result__source">{{ translation.sourceText }}</span>
+
+        @if (translation.fromCache) {
+          <span class="badge badge--cache">讀取自快取</span>
+        } @else {
+          <span class="badge badge--fresh">本次新查詢</span>
+        }
+      </div>
+
+      <p class="result__thai">{{ translation.thaiText }}</p>
+      <p class="result__romanization">{{ translation.romanization }}</p>
+
+      <!-- audioUrl 為 null 代表語音沒生出來，此時整顆播放鍵不出現 -->
+      @if (translation.audioUrl) {
+        <button class="play" type="button" (click)="play()">播放發音</button>
+      }
+
+      @if (translation.segments.length) {
+        <table class="segments">
+          <caption class="segments__caption">逐詞對照</caption>
+          <thead>
+            <tr>
+              <th scope="col">中文</th>
+              <th scope="col">泰文</th>
+              <th scope="col">羅馬拼音</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (segment of translation.segments; track segment.seqNo) {
+              <tr>
+                <td>{{ segment.chineseText }}</td>
+                <td class="segments__thai">{{ segment.thaiText }}</td>
+                <td class="segments__romanization">{{ segment.romanization }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+
+    </section>
+  }
+
+  <!--
+    這個 <audio> 永遠留在畫面上（藏起來），不放進上面的 @if 裡面。
+    原因見 translation.ts 檔頭第 6 步：Web Audio 的放大器對同一個元素
+    只能接一次，元素被 @if 拆掉重建的話，放大器就會接到一個不存在的東西。
+  -->
+  <audio #audioPlayer hidden></audio>
+
+</main>

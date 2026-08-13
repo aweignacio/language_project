@@ -57,6 +57,14 @@ logs/
 *.mv.db
 *.trace.db
 
+### Angular 前端 ###
+# 套件本體由 package.json 還原，數萬個檔案不進版控
+frontend/node_modules/
+# Angular 的建置快取
+frontend/.angular/
+# 前端建置產物
+frontend/dist/
+
 ### 作業系統雜項 ###
 .DS_Store
 Thumbs.db

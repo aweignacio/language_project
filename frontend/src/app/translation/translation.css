@@ -1,0 +1,192 @@
+/* 版面：置中的單欄，最寬 720px，手機上自動變窄 */
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+.page__header {
+  margin-bottom: 1.75rem;
+}
+
+.page__title {
+  margin: 0 0 0.35rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #1f2933;
+}
+
+.page__subtitle {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #6b7785;
+}
+
+/* 查詢列：輸入框吃掉剩餘寬度，按鈕維持原寬 */
+.search {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.search__input {
+  flex: 1;
+  padding: 0.7rem 0.9rem;
+  font-size: 1rem;
+  color: #1f2933;
+  border: 1px solid #cbd2d9;
+  border-radius: 6px;
+}
+
+.search__input:focus {
+  outline: 2px solid #2f6fed;
+  outline-offset: 1px;
+  border-color: #2f6fed;
+}
+
+.search__button {
+  padding: 0.7rem 1.5rem;
+  font-size: 1rem;
+  color: #fff;
+  background: #2f6fed;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.search__button:hover:not(:disabled) {
+  background: #2558c4;
+}
+
+/* 查詢中時按鈕與輸入框一起變灰，讓「現在按不動」看得出來 */
+.search__button:disabled,
+.search__input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* 訊息區 */
+.message {
+  margin: 1.25rem 0 0;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  border-radius: 6px;
+}
+
+/* 紅色：真的出事了 */
+.message--error {
+  color: #8a1c1c;
+  background: #fdecec;
+  border: 1px solid #f5c2c2;
+}
+
+/* 灰色：AI 說翻不出來，是正常結果，不該長得像故障 */
+.message--notice {
+  color: #4a5561;
+  background: #f2f4f7;
+  border: 1px solid #dde1e7;
+}
+
+/* 結果卡片 */
+.result {
+  margin-top: 1.75rem;
+  padding: 1.5rem;
+  background: #fff;
+  border: 1px solid #e3e7ec;
+  border-radius: 10px;
+}
+
+.result__head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.result__source {
+  font-size: 0.95rem;
+  color: #6b7785;
+}
+
+.badge {
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+  border-radius: 999px;
+}
+
+/* 讀快取＝這次沒花錢 */
+.badge--cache {
+  color: #1d6b3f;
+  background: #e6f5ec;
+}
+
+/* 新查詢＝這次呼叫了 OpenAI */
+.badge--fresh {
+  color: #8a5a00;
+  background: #fdf3e0;
+}
+
+/* 泰文是主角，字級刻意拉大 */
+.result__thai {
+  margin: 0 0 0.4rem;
+  font-size: 2rem;
+  line-height: 1.5;
+  color: #1f2933;
+  word-break: break-word;
+}
+
+.result__romanization {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #6b7785;
+}
+
+.play {
+  margin-top: 1.1rem;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.9rem;
+  color: #2f6fed;
+  background: #eef3fe;
+  border: 1px solid #c6d7fb;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.play:hover {
+  background: #e0e9fd;
+}
+
+/* 逐詞對照表 */
+.segments {
+  width: 100%;
+  margin-top: 1.6rem;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.segments__caption {
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  color: #6b7785;
+  text-align: left;
+}
+
+.segments th,
+.segments td {
+  padding: 0.55rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid #eceff3;
+}
+
+.segments th {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #6b7785;
+}
+
+.segments__thai {
+  font-size: 1.15rem;
+}
+
+.segments__romanization {
+  color: #6b7785;
+}

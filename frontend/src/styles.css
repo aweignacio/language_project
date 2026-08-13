@@ -1,0 +1,15 @@
+/* 全域樣式。各元件自己的樣式寫在元件的 .css 裡，這裡只放整頁共用的東西。 */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #f7f8fa;
+  color: #1f2933;
+  /* 泰文字型放在中文字型之後，讓兩種文字都有合適的字型可用 */
+  font-family: "Segoe UI", "Microsoft JhengHei", "Noto Sans Thai", sans-serif;
+  line-height: 1.6;
+}
