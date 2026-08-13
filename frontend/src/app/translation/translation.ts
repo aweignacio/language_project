@@ -31,10 +31,17 @@
  *      因為這個專案是 zoneless 模式 —— Angular 不會再暗中監視所有變數，
  *      它只重畫「訊號說自己變了」的地方。普通變數改了，畫面不會跟著動。
  *
- *    不想自己打字的話，還沒查過東西時畫面下方會列出幾句範例（examples）。
- *    點下去走的是 useExample，效果跟你自己打完一模一樣：
+ *    不想自己打字的話，還沒查過東西時畫面下方會列出三句範例。
+ *    這三句不是寫死的，是從 EXAMPLE_POOL 這個 15 句的題庫隨機抽的：
  *
- *        useExample('我想喝酒')  →  sourceText.set('我想喝酒')
+ *        pickExamples()  →  ['我迷路了', '不要辣', '機場怎麼走']
+ *                        →  examples 訊號
+ *                        →  translation.html 的 @for 排出三顆膠囊
+ *
+ *    按「換一批」就是再抽一次，重新灌進同一個訊號。
+ *    點其中一句走的是 useExample，效果跟你自己打完一模一樣：
+ *
+ *        useExample('我迷路了')  →  sourceText.set('我迷路了')
  *                                →  輸入框因為 [value]="sourceText()" 跟著變
  *
  *    ★ 點範例「只填字，不送出」。因為沒查過的句子要真的去呼叫 OpenAI，
@@ -145,8 +152,52 @@ const AUDIO_GAIN = 3;
 /** 後端在「AI 判定翻不出來」時回的錯誤碼，要當成正常結果顯示。 */
 const CODE_UNTRANSLATABLE = 'INPUT_UNSUPPORTED_CONTENT';
 
-/** 空畫面上列出的範例句，點一下會填進輸入框。 */
-const EXAMPLES = ['我想喝酒', '廁所在哪裡', '這個多少錢'];
+/**
+ * 範例句的題庫。空畫面每次從這裡隨機抽 EXAMPLE_COUNT 句出來顯示，
+ * 所以要放得比實際顯示的數量多，抽起來才有變化。
+ */
+const EXAMPLE_POOL = [
+  '我想喝酒',
+  '廁所在哪裡',
+  '這個多少錢',
+  '我肚子餓了',
+  '不要辣',
+  '請給我一杯水',
+  '我聽不懂',
+  '可以便宜一點嗎',
+  '請幫我叫計程車',
+  '我要結帳',
+  '這附近有便利商店嗎',
+  '我迷路了',
+  '請等一下',
+  '機場怎麼走',
+  '這個很好吃',
+];
+
+/** 一次顯示幾句範例。 */
+const EXAMPLE_COUNT = 3;
+
+/**
+ * 從題庫隨機抽出 EXAMPLE_COUNT 句不重複的範例。
+ *
+ * 做法是先複製一份題庫（[...EXAMPLE_POOL] 是複製，不是直接用原本那個），
+ * 每抽中一句就用 splice 從複製品裡拿走，下一輪就不可能再抽到同一句。
+ * 動的是複製品，原本的 EXAMPLE_POOL 不會被抽空。
+ *
+ * 寫成不屬於任何類別的函式，是因為下面的欄位初始化要用它，
+ * 那個時機點還不能用 this。
+ */
+function pickExamples(): string[] {
+  const pool = [...EXAMPLE_POOL];
+  const picked: string[] = [];
+
+  while (picked.length < EXAMPLE_COUNT && pool.length > 0) {
+    const index = Math.floor(Math.random() * pool.length);
+    picked.push(pool.splice(index, 1)[0]);
+  }
+
+  return picked;
+}
 
 @Component({
   selector: 'app-translation',
@@ -176,8 +227,11 @@ export class Translation {
   /** 灰色提示訊息，目前只有「翻不出來」會用到。 */
   protected readonly noticeMessage = signal<string | null>(null);
 
-  /** 空畫面上的範例句，給 translation.html 的 @for 跑。 */
-  protected readonly examples = EXAMPLES;
+  /**
+   * 這次要顯示的範例句。做成訊號是因為按「換一批」時整排要重畫，
+   * 普通陣列改了畫面不會跟著動（zoneless 模式，見檔頭第 1 步）。
+   */
+  protected readonly examples = signal(pickExamples());
 
   /** Web Audio 的放大鏈，第一次按播放時才建立，之後重複使用。 */
   private audioContext?: AudioContext;
@@ -193,6 +247,11 @@ export class Translation {
    */
   protected useExample(text: string): void {
     this.sourceText.set(text);
+  }
+
+  /** 按下「換一批」：重新抽三句範例。 */
+  protected shuffleExamples(): void {
+    this.examples.set(pickExamples());
   }
 
   /** 按下查詢，或在輸入框按 Enter。 */

@@ -26,7 +26,7 @@
         type="text"
         maxlength="100"
         aria-label="要翻譯的中文"
-        placeholder="例如：我想喝酒"
+        placeholder="請輸入想翻譯的中文"
         [value]="sourceText()"
         (input)="onInput($event)"
         [disabled]="loading()" />
@@ -62,7 +62,7 @@
       <p class="empty__hint">在上面打一句中文，或從下面挑一句</p>
 
       <ul class="examples">
-        @for (example of examples; track example) {
+        @for (example of examples(); track example) {
           <li>
             <button class="examples__chip" type="button" (click)="useExample(example)">
               {{ example }}
@@ -70,6 +70,11 @@
           </li>
         }
       </ul>
+
+      <button class="shuffle" type="button" (click)="shuffleExamples()">
+        <span class="shuffle__icon" aria-hidden="true">↻</span>
+        換一批
+      </button>
     </section>
   }
 

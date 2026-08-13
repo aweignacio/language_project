@@ -315,6 +315,38 @@
   transform: translateY(-1px);
 }
 
+/* 「換一批」刻意做得比範例膠囊更弱，它是次要動作，不該搶走目光 */
+.shuffle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 1.1rem;
+  padding: 0.3rem 0.5rem;
+  font-family: var(--font-serif);
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  color: var(--ivory-faint);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.3s;
+}
+
+.shuffle:hover {
+  color: var(--gold-500);
+}
+
+/* 滑過時箭頭轉一圈，呼應「重抽」這個動作 */
+.shuffle__icon {
+  display: inline-block;
+  font-size: 0.95rem;
+  transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.shuffle:hover .shuffle__icon {
+  transform: rotate(180deg);
+}
+
 /* ─── 結果卡片 ─────────────────────────────────────────────────────────── */
 
 .result {
