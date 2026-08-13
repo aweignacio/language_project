@@ -19,7 +19,7 @@ package com.tim.language_project.exception;
  *    測試三、測試四就是在防這件事。
  *
  * ══════════════════════════════════════════════════════════════════════════
- *  流程：從你打指令到看見 Tests run: 4
+ *  流程：從你打指令到看見 Tests run: 5
  * ══════════════════════════════════════════════════════════════════════════
  *
  * ── 第 1 步｜你在終端機打指令 ───────────────────────────────────────────
@@ -86,7 +86,7 @@ package com.tim.language_project.exception;
  *    $ 代表最外層，點號往裡面鑽。
  *
  * ══════════════════════════════════════════════════════════════════════════
- *  四個測試各自在防什麼
+ *  五個測試各自在防什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
  *    測試一  丟 BusinessException     防：錯誤碼指定的狀態與訊息沒被照著回
@@ -98,6 +98,7 @@ package com.tim.language_project.exception;
  *
  *    測試三  打一個不存在的網址        防：404 被兜底處理器蓋成 500
  *    測試四  用錯 HTTP 方法（POST）    防：405 被兜底處理器蓋成 500
+ *    測試五  送出壞掉的 JSON          防：400 被兜底處理器蓋成 500
  *
  *    ★ 測試三、四是「回歸測試」—— 這兩件事真的發生過。
  *      修好之前它們是紅的（Status expected:<404> but was:<500>），
@@ -110,9 +111,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.http.MediaType;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -229,6 +233,33 @@ class GlobalExceptionHandlerTest {
     }
 
     /*
+     * ═══ 測試五：JSON 讀不懂，該回 400 不該回 500 ═══════════════════════
+     *
+     * 情境：前端送出的 JSON 少一個引號、多一個逗號、或根本不是 JSON。
+     *
+     * 這是「送的人弄錯了」，屬於 4xx。回 500 的話，前端工程師會跑去查後端，
+     * 但問題其實在他自己那邊 —— 這種誤導很浪費時間。
+     *
+     * ★ 這條跟測試三、四是同一類問題，但當初的修法漏掉了它：
+     *   那個修法是「問例外身上有沒有帶狀態碼」，
+     *   而 HttpMessageNotReadableException 剛好沒有實作 ErrorResponse，
+     *   問不出來，就掉進兜底的 500。所以要單獨接住它。
+     *
+     *   （這是 2026-08-13 用 curl 測試時真的踩到的：
+     *     PowerShell 把反斜線原封不動送出去，後端收到壞掉的 JSON 回了 500。）
+     */
+    @Test
+    @DisplayName("請求內容不是合法 JSON 時應回 400")
+    void shouldReturnBadRequestForUnreadableBody() throws Exception {
+        mockMvc.perform(post("/test/echo")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{這根本不是 JSON"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCodeEnum.REQUEST_INVALID.name()))
+                .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    /*
      * ═══ 這個 Controller 是假的，只為測試而存在 ═════════════════════════
      *
      * 真正的 Controller 要 Task 9 才會做。
@@ -243,6 +274,15 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/test/business-error")
         String throwBusinessException() {
             throw new BusinessException(ErrorCodeEnum.VOCABULARY_NOT_FOUND);
+        }
+
+        /** 給測試五用：需要一個會讀請求內容的端點，才生得出「JSON 讀不懂」的情況。 */
+        @PostMapping("/test/echo")
+        String echo(@RequestBody EchoRequest request) {
+            return request.value();
+        }
+
+        record EchoRequest(String value) {
         }
 
         @GetMapping("/test/unexpected-error")

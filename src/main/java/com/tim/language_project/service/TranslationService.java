@@ -125,6 +125,7 @@ import com.tim.language_project.repository.TranslationSegmentRepository;
 import com.tim.language_project.repository.VocabularyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
 
@@ -185,7 +186,19 @@ public class TranslationService {
 
         String audioFile = speechClient.synthesize(result.thaiText()).orElse(null);
 
-        translationPersistenceService.persist(sourceText, result, audioFile);
+        try {
+            translationPersistenceService.persist(sourceText, result, audioFile);
+        } catch (DataIntegrityViolationException exception) {
+            // 撞到唯一鍵，代表在我們翻譯的這幾秒內，另一個請求已經把同一句寫進去了。
+            // 這不是錯誤，是「有人比我們快」。改讀他寫好的那筆回傳，
+            // 使用者完全不會發現發生過這件事。
+            log.warn("concurrent write detected for the same input, falling back to the cached row");
+
+            return translationQueryRepository.findBySourceText(sourceText)
+                    .map(this::buildCachedResponse)
+                    .orElseThrow(() -> new BusinessException(
+                            ErrorCodeEnum.DATA_PERSIST_FAILED, exception));
+        }
 
         return new TranslationResponseDto(
                 sourceText,

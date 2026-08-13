@@ -145,6 +145,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -164,6 +165,24 @@ public class GlobalExceptionHandler {
         String traceId = newTraceId();
 
         log.warn("[{}] business error: {}", traceId, errorCode.name(), exception);
+
+        return toResponse(errorCode.getHttpStatus(), errorCode, traceId);
+    }
+
+    /**
+     * 請求內容讀不懂時（JSON 少一個括號、多一個逗號、根本不是 JSON）。
+     * 這是「送的人弄錯了」，要回 400，不是伺服器的錯。
+     * 必須單獨接住，因為 HttpMessageNotReadableException 沒有實作 ErrorResponse，
+     * 下面那個兜底處理器問不出它的狀態碼，會誤判成 500。
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponseDto> handleUnreadableRequest(
+            HttpMessageNotReadableException exception) {
+        ErrorCodeEnum errorCode = ErrorCodeEnum.REQUEST_INVALID;
+        String traceId = newTraceId();
+
+        // 不印堆疊：這是對方送錯，不是我們的程式有問題。
+        log.warn("[{}] unreadable request body: {}", traceId, exception.getMessage());
 
         return toResponse(errorCode.getHttpStatus(), errorCode, traceId);
     }

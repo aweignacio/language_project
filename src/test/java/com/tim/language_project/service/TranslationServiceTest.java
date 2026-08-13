@@ -13,7 +13,7 @@ package com.tim.language_project.service;
  *  ⚠ 不連資料庫、不連 OpenAI。四個依賴全部換成假的。
  *
  * ══════════════════════════════════════════════════════════════════════════
- *  流程：從你打指令到看見 Tests run: 7
+ *  流程：從你打指令到看見 Tests run: 8
  * ══════════════════════════════════════════════════════════════════════════
  *
  * ── 第 1 步｜你在終端機打指令 ───────────────────────────────────────────
@@ -54,7 +54,7 @@ package com.tim.language_project.service;
  *      但每查一次就重複付一次錢。這種錯誤只有測試抓得到。
  *
  * ══════════════════════════════════════════════════════════════════════════
- *  七個測試各自在防什麼
+ *  八個測試各自在防什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
  *    一  快取命中            防：★重複付費★，查過的東西又去問一次 OpenAI
@@ -66,6 +66,7 @@ package com.tim.language_project.service;
  *    五  語音失敗            防：★聲音失敗把整個翻譯一起拖垮★
  *    六  AI 說翻不出來       防：★編造的詞被永久寫進快取與單字庫★
  *    七  單字庫已有這個詞    防：明明本地就有答案，還去付費問 OpenAI
+ *    八  兩人同時查同一句    防：後到的那個撞唯一鍵爆掉，使用者看到 500
  */
 
 import com.tim.language_project.client.SpeechClient;
@@ -87,6 +88,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
 import java.util.Optional;
@@ -253,6 +255,54 @@ class TranslationServiceTest {
         verify(translationPersistenceService, never()).persist(any(), any(), any());
         // 也不該為了一個翻不出來的東西去生語音
         verify(speechClient, never()).synthesize(anyString());
+    }
+
+    /*
+     * ═══ 測試八：兩個請求同時查同一句話 ═════════════════════════════════
+     *
+     * 情境：你連按兩次查詢，或兩個人同時查「水」。
+     *
+     *     請求 A 查快取 → 沒有 → 去翻譯（要好幾秒）
+     *     請求 B 查快取 → 沒有 → 也去翻譯     ← 此時 A 還沒寫完
+     *     請求 A 寫入 → 成功
+     *     請求 B 寫入 → ★ 撞到 source_text 的唯一鍵 ★
+     *
+     * 修正前：B 會爆炸，使用者看到 500「系統發生非預期錯誤」。
+     * 修正後：B 知道「有人比我快」，改去讀 A 寫好的那筆回傳。
+     *         使用者完全不會發現發生過這件事。
+     *
+     * 這個測試用兩段式的假動作模擬時間差：
+     *     第一次查快取 → 空的（那時 A 還沒寫完）
+     *     第二次查快取 → 有了（A 已經寫完）
+     */
+    @Test
+    @DisplayName("同時寫入撞唯一鍵時應改讀既有資料，不可讓使用者看到錯誤")
+    void shouldFallBackToExistingRowOnConcurrentWrite() {
+        // 第一次回空的、第二次回有資料 —— 模擬「另一個請求在這中間寫進去了」
+        when(translationQueryRepository.findBySourceText("水"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        88L, "水", "น้ำ", "náam", "abc123.mp3")));
+        when(translationSegmentRepository.findByQueryIdOrderBySeqNo(88L))
+                .thenReturn(List.of(new TranslationSegmentDto(1, "水", "น้ำ", "náam")));
+        when(vocabularyRepository.findByChineseText("水")).thenReturn(Optional.empty());
+        when(translationClient.translate("水")).thenReturn(new TranslationResult(
+                "น้ำ", "náam",
+                List.of(new TranslationWord("水", "น้ำ", "náam")),
+                "gpt-test", 10L, 5L, true));
+        when(speechClient.synthesize("น้ำ")).thenReturn(Optional.of("xyz.mp3"));
+
+        // 寫入時撞唯一鍵
+        when(translationPersistenceService.persist(any(), any(), any()))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        TranslationResponseDto response = translationService.translate("水");
+
+        // ★ 沒有丟出例外，而且回的是別人寫好的那筆
+        assertThat(response.thaiText()).isEqualTo("น้ำ");
+        assertThat(response.audioUrl()).isEqualTo("/audio/abc123.mp3");
+        assertThat(response.fromCache()).isTrue();
+        assertThat(response.segments()).hasSize(1);
     }
 
     /*

@@ -299,6 +299,39 @@ class OpenAiTranslationClientTest {
     }
 
     /*
+     * ═══ 測試七：模型漏傳 translatable 欄位時，不可誤判成「翻不出來」═════
+     *
+     * 情境：模型回的 JSON 裡「根本沒有」translatable 這個欄位。
+     *
+     * 這是防呆。結構化輸出理論上會強制每個欄位都要給，所以不該發生 ——
+     * 但萬一發生了，症狀會非常難查：
+     *
+     *     使用者查一個完全正常的詞 → 畫面說「輸入內容無法翻譯」
+     *
+     * 你會以為是模型的問題，其實是我們自己把它擋掉的。
+     *
+     * ★ 所以規則是：只有「明確說 false」才擋，「沒說」一律放行。
+     *   寧可放過一個可疑的，也不要誤擋一個正常的。
+     */
+    @Test
+    @DisplayName("模型未提供 translatable 欄位時應視為可翻譯")
+    void shouldTreatMissingTranslatableFlagAsTranslatable() {
+        givenModelReplies("""
+                {
+                  "thaiText": "น้ำ",
+                  "romanization": "náam",
+                  "words": [{"chineseText": "水", "thaiText": "น้ำ", "romanization": "náam"}]
+                }
+                """, 60, 12);
+
+        TranslationResult result = openAiTranslationClient.translate("水");
+
+        // 我主張：沒有被擋掉，正常回傳翻譯結果
+        assertThat(result.translatable()).isTrue();
+        assertThat(result.thaiText()).isEqualTo("น้ำ");
+    }
+
+    /*
      * ═══ 測試六：泰文裡混到中文字，要當成失敗 ═══════════════════════════
      *
      * 這是真實跑出來的狀況（2026-08-13）。查「我想吃飯」時，gpt-4o-mini 回了：

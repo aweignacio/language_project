@@ -279,7 +279,11 @@ public class OpenAiTranslationClient implements TranslationClient {
 
             // 模型自己說「這翻不出來」。這是正常的回答不是錯誤，
             // 呼叫也確實成功了，所以記成功，由呼叫端決定要怎麼回應使用者。
-            if (!payload.translatable()) {
+            //
+            // 只有「明確是 false」才擋。欄位沒給（null）時當作可以翻 ——
+            // 寧可讓一個可疑的結果通過，也不要把正常的翻譯誤擋下來，
+            // 因為誤擋的症狀是「明明是正常的詞卻說無法翻譯」，很難查。
+            if (Objects.equals(payload.translatable(), Boolean.FALSE)) {
                 recordUsage(inputTokens, outputTokens, true);
                 return TranslationResult.untranslatable(modelName, inputTokens, outputTokens);
             }
@@ -381,7 +385,19 @@ public class OpenAiTranslationClient implements TranslationClient {
             String thaiText,
             String romanization,
             List<WordPayload> words,
-            boolean translatable) {
+            /*
+             * ★ 這裡是大寫的 Boolean，不是小寫的 boolean，這個差別很重要。
+             *
+             *   小寫 boolean 只有 true / false 兩種可能。
+             *   模型如果漏了這個欄位沒寫，Java 會自動補 false，
+             *   我們就會把一個「翻得好好的」結果誤判成「翻不出來」而擋掉。
+             *
+             *   大寫 Boolean 多了第三種可能：null（代表「它沒說」）。
+             *   分得開之後就能這樣處理：
+             *       null  → 它沒表示意見 → 當作可以翻，照常往下走
+             *       false → 它明確說不行 → 才擋掉
+             */
+            Boolean translatable) {
     }
 
     private record WordPayload(
