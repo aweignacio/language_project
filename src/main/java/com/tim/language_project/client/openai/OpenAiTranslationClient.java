@@ -189,6 +189,7 @@ import org.springframework.util.ObjectUtils;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * 以 OpenAI 對話模型實作翻譯，使用結構化輸出直接取得物件。
@@ -202,8 +203,20 @@ public class OpenAiTranslationClient implements TranslationClient {
 
             收到一段中文後，請回傳：
             1. 整段對應的泰文
-            2. 整段泰文的羅馬拼音，需標註聲調符號（例如 chǎn、dùuem、lâo）
+            2. 「第 1 點那段泰文」的羅馬拼音，需標註聲調符號（例如 chǎn、dùuem、lâo）
             3. 逐詞對照：把輸入依照語意切成詞，每個詞給出中文、泰文、羅馬拼音
+
+            ★ romanization 欄位最容易搞錯，請特別注意：
+
+            它是「泰文怎麼唸」，不是「中文怎麼唸」。
+            絕對不可以填中文的漢語拼音。
+
+              輸入「我想喝酒」→ 泰文是 ฉันอยากดื่มเหล้า
+                 正確：chǎn yàak dùuem lâo    （這是泰文的唸法）
+                 錯誤：wǒ xiǎng hē jiǔ         （這是中文的唸法，不要這樣寫）
+
+            自我檢查：romanization 應該等於 words 裡每個詞的 romanization
+            依序串起來的結果。對不起來就是寫錯了，請重寫。
 
             逐詞對照的規則：
             - 輸入若只有一個詞，words 就只有一個元素
@@ -217,6 +230,9 @@ public class OpenAiTranslationClient implements TranslationClient {
             - 寧可誠實回報 false，也不要硬湊一個看起來合理的答案。
               使用者是學習者，一個編造出來的詞會被他背起來。
             """;
+
+    /** 用來偵測泰文欄位裡有沒有混進中文字（CJK 統一表意文字的範圍）。 */
+    private static final Pattern CHINESE_PATTERN = Pattern.compile("[\\u4e00-\\u9fff]");
 
     private final ChatClient chatClient;
 
@@ -276,6 +292,15 @@ public class OpenAiTranslationClient implements TranslationClient {
                 throw new BusinessException(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
             }
 
+            if (containsChinese(payload)) {
+                // 模型翻到一半沒翻完，泰文欄位裡混著中文字。
+                // 這種半成品絕對不能存進快取與單字庫 —— 它會被使用者背起來。
+                recordUsage(inputTokens, outputTokens, false);
+                log.error("openai returned thai text containing chinese characters: {}",
+                        payload.thaiText());
+                throw new BusinessException(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
+            }
+
             recordUsage(inputTokens, outputTokens, true);
 
             List<TranslationWord> words = payload.words().stream()
@@ -297,6 +322,21 @@ public class OpenAiTranslationClient implements TranslationClient {
             log.error("translation call failed for input length {}", sourceText.length(), exception);
             throw new BusinessException(ErrorCodeEnum.TRANSLATION_SERVICE_UNAVAILABLE, exception);
         }
+    }
+
+    /**
+     * 檢查泰文欄位裡有沒有混進中文字。
+     * 模型能力不足時會翻一半停手，把沒翻出來的中文原字直接貼在泰文裡，
+     * 例如「ฉันอยาก吃ข้าว」。這種結果看起來很像成功，
+     * 但存進去就會永久污染快取與單字庫，所以在這裡當掉。
+     */
+    private boolean containsChinese(TranslationPayload payload) {
+        if (CHINESE_PATTERN.matcher(payload.thaiText()).find()) {
+            return true;
+        }
+
+        return payload.words().stream()
+                .anyMatch(word -> CHINESE_PATTERN.matcher(word.thaiText()).find());
     }
 
     private Usage usageOf(ChatResponse chatResponse) {

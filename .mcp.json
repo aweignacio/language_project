@@ -1,0 +1,63 @@
+{
+  "mcpServers": {
+    "excel": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@negokaz/excel-mcp-server"
+      ],
+      "env": {
+        "EXCEL_MCP_PAGING_CELLS_LIMIT": "4000"
+      }
+    },
+    "word": {
+      "type": "stdio",
+      "command": "C:\\Users\\許庭維\\AppData\\Local\\Python\\pythoncore-3.14-64\\Scripts\\uvx.exe",
+      "args": [
+        "--from",
+        "office-word-mcp-server",
+        "word_mcp_server"
+      ],
+      "env": {}
+    },
+    "mssql": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mssql-mcp-server"
+      ],
+      "env": {
+        "MSSQL_HOST": "${MSSQL_HOST:-localhost}",
+        "MSSQL_PORT": "${MSSQL_PORT:-1433}",
+        "MSSQL_DATABASE": "${MSSQL_DATABASE:-language_project}",
+        "MSSQL_USER": "${MSSQL_USER:-sa}",
+        "MSSQL_PASSWORD": "${MSSQL_PASSWORD}",
+        "MSSQL_ENCRYPT": "false"
+      }
+    },
+    "notion": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@notionhq/notion-mcp-server"
+      ],
+      "env": {
+        "OPENAPI_MCP_HEADERS": "{\"Authorization\":\"Bearer ${NOTION_TOKEN}\",\"Notion-Version\":\"2022-06-28\"}"
+      }
+    },
+    "redis": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "redis-mcp"
+      ],
+      "env": {
+        "REDIS_URL": "${REDIS_URL:-redis://localhost:6379}"
+      }
+    }
+  }
+}

@@ -94,7 +94,7 @@ class TranslationQueryRepositoryTest {
          * 但只要有一個聲調符號，就會壞掉。所以拼音也必須驗。
          */
         TranslationQuery query = new TranslationQuery();
-        query.setSourceText("我想喝酒");
+        query.setSourceText("測試勿刪我想喝酒");
         query.setThaiText("ฉันอยากดื่มเหล้า");
         query.setRomanization("chǎn yàak dùuem lâo");
         query.setAudioFile("a3f9c2.mp3");
@@ -112,7 +112,7 @@ class TranslationQueryRepositoryTest {
          * 「這句話以前有人查過嗎？」有的話就不用花錢問 OpenAI 了。
          */
         Optional<TranslationQueryDto> found =
-                translationQueryRepository.findBySourceText("我想喝酒");
+                translationQueryRepository.findBySourceText("測試勿刪我想喝酒");
 
         /*
          * ── 第三段：檢查結果（Assert）──
@@ -134,7 +134,7 @@ class TranslationQueryRepositoryTest {
         // 我主張：中文原文也沒壞。
         // 這欄還兼任「快取的鑰匙」—— 它要是壞了，之後永遠查不到快取，
         // 每次查詢都會重新付費呼叫 OpenAI。
-        assertThat(found.get().sourceText()).isEqualTo("我想喝酒");
+        assertThat(found.get().sourceText()).isEqualTo("測試勿刪我想喝酒");
     }
 
     /*
@@ -162,7 +162,7 @@ class TranslationQueryRepositoryTest {
         // 這次只有單一個詞「水」，而且 audioFile 明確設成 null，
         // 模擬「翻譯成功，但語音合成失敗」的情況。
         TranslationQuery query = new TranslationQuery();
-        query.setSourceText("水");
+        query.setSourceText("測試勿刪水");
         query.setThaiText("น้ำ");
         query.setRomanization("náam");
         query.setAudioFile(null);
@@ -172,7 +172,7 @@ class TranslationQueryRepositoryTest {
         translationQueryRepository.saveAndFlush(query);
 
         // ── 第二段：執行要測的動作 ──
-        Optional<TranslationQueryDto> found = translationQueryRepository.findBySourceText("水");
+        Optional<TranslationQueryDto> found = translationQueryRepository.findBySourceText("測試勿刪水");
 
         // ── 第三段：檢查結果 ──
 

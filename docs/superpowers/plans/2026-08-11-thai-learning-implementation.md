@@ -61,8 +61,9 @@
    是掛在 `/**` 底下，`/audio/x.mp3` 會被解析成 `audio/audio/x.mp3`，取不到檔。
    直接使用該步驟的備案 `WebMvcConfig`，跳過該 yaml 設定。
 
-3. **Task 10 的 `app.js` 有 XSS 破口。** 原始碼用 `innerHTML` 拼字串塞入 API 回傳值，
-   使用者輸入會被當 HTML 執行。改用 `createElement` + `textContent`，畫面完全相同。
+3. ~~**Task 10 的 `app.js` 有 XSS 破口。**~~ **已不適用。**
+   Task 10 於 2026-08-12 整份改寫為 Angular，原本那個 `app.js` 不會存在了。
+   Angular 預設會把插值當純文字處理，不會執行使用者輸入的 HTML，這個破口自動消失。
 
 4. **`application-local.yml` 的 OpenAI api-key 目前是佔位字串。**
    Task 6 Step 4 與 Task 10 Step 4 的「手動驗證」在補上真實金鑰前無法執行，
@@ -2719,220 +2720,247 @@ EOF
 
 ---
 
-# Task 10：前端查詢頁面　⬅ 下一個
+# Task 10：Angular 前端查詢頁面　⬅ 下一個
 
 **分支：** `feat/web-page`
 
-**Files:**
-- Create: `src/main/resources/static/index.html`
-- Create: `src/main/resources/static/style.css`
-- Create: `src/main/resources/static/app.js`
+> **本 Task 已於 2026-08-12 整份改寫。** 原版是放在 `src/main/resources/static/` 的
+> 純 HTML + JavaScript 三個檔案。Awei 決定改用 Angular 獨立前端，理由是想學前後端分離的實際做法。
+> 原版內容已作廢，不要參考。連帶影響：
+>
+> - **已知偏離第 3 條（`app.js` 的 XSS 破口）自動消失** —— 那是 `innerHTML` 拼字串造成的，
+>   Angular 預設會把插值當純文字處理，不會執行使用者輸入的 HTML。
+> - 後端**完全不用改**，一行都不用。開發時的跨來源問題由 Angular 的代理解決。
 
-- [ ] **Step 1：建立 `index.html`**
+**Awei 的決定（2026-08-12）：**
 
-```html
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>中泰語言學習</title>
-    <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-<main>
-    <h1>中文轉泰文</h1>
+| 項目 | 決定 |
+|---|---|
+| Angular 專案位置 | 同一個 repo 的 `frontend/`，共用一份 git 歷史 |
+| 上線方式 | 先不管，本機跑得起來就好。不做「build 進 Spring static」那一步 |
+| 開發時的跨來源 | 用 Angular 的開發代理，**後端不加 CORS 設定** |
 
-    <form id="query-form">
-        <input id="source-text" type="text" maxlength="100"
-               placeholder="輸入中文，例如：我想喝酒" autocomplete="off">
-        <button type="submit" id="submit-button">查詢</button>
-    </form>
+**前置條件：Task 6、7 的金鑰實測必須先完成。**
+前端只是把 API 的結果顯示出來，後端不確定能動就先做畫面，等於在兩個未知數之間 debug。
 
-    <p id="status" class="status"></p>
+**註解要求（與後端一致）：**
+每個有流程的檔案（Service、Component）開頭要有中文區塊註解，
+從「使用者按下查詢」開始逐步走，標明誰、哪個方法、當下資料實際長什麼樣。
+純型別定義（interface）不用加。詳見全域 CLAUDE.md 的 Flow block 規則。
 
-    <section id="result" class="result hidden">
-        <p class="thai" id="thai-text"></p>
-        <p class="romanization" id="romanization"></p>
-        <button type="button" id="play-button" class="hidden">▶ 播放發音</button>
-        <audio id="audio-player"></audio>
+---
 
-        <h2>逐詞對照</h2>
-        <table id="segment-table">
-            <thead>
-            <tr><th>中文</th><th>泰文</th><th>拼音</th></tr>
-            </thead>
-            <tbody id="segment-body"></tbody>
-        </table>
-    </section>
-</main>
-<script src="/app.js"></script>
-</body>
-</html>
+## 這個 Task 開始前要知道的三件事
+
+### 一、為什麼需要「代理」
+
+開發時會有兩個伺服器同時跑：
+
+```
+Angular 開發伺服器   localhost:4200   ← 你在瀏覽器看到的畫面
+Spring Boot          localhost:8080   ← 資料從這裡來
 ```
 
-- [ ] **Step 2：建立 `style.css`**
+瀏覽器有一條安全規則：**網頁只能打「自己來源」的後端**。
+`4200` 的網頁去打 `8080`，會被瀏覽器直接擋下來：
 
-```css
-* { box-sizing: border-box; }
-
-body {
-    margin: 0;
-    padding: 2rem 1rem;
-    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-    background: #f7f5f2;
-    color: #2b2b2b;
-}
-
-main { max-width: 640px; margin: 0 auto; }
-
-h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
-
-h2 { font-size: 1rem; margin-top: 2rem; color: #666; }
-
-#query-form { display: flex; gap: 0.5rem; }
-
-#source-text {
-    flex: 1;
-    padding: 0.75rem;
-    font-size: 1rem;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-}
-
-button {
-    padding: 0.75rem 1.25rem;
-    font-size: 1rem;
-    border: none;
-    border-radius: 6px;
-    background: #b5543a;
-    color: #fff;
-    cursor: pointer;
-}
-
-button:disabled { background: #bbb; cursor: not-allowed; }
-
-.status { min-height: 1.5rem; color: #b5543a; font-size: 0.9rem; }
-
-.result { background: #fff; padding: 1.5rem; border-radius: 8px; }
-
-.thai { font-size: 2rem; margin: 0 0 0.5rem; }
-
-.romanization { font-size: 1.1rem; color: #666; margin: 0 0 1rem; }
-
-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-
-th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #eee; }
-
-th { font-size: 0.85rem; color: #888; font-weight: normal; }
-
-td:nth-child(2) { font-size: 1.15rem; }
-
-.hidden { display: none; }
+```
+Access to fetch at 'http://localhost:8080/api/v1/translations'
+from origin 'http://localhost:4200' has been blocked by CORS policy
 ```
 
-- [ ] **Step 3：建立 `app.js`**
+代理的做法是讓 Angular 的開發伺服器自己去轉發：
 
-```javascript
-const form = document.getElementById('query-form');
-const sourceInput = document.getElementById('source-text');
-const submitButton = document.getElementById('submit-button');
-const statusText = document.getElementById('status');
-const resultSection = document.getElementById('result');
-const thaiText = document.getElementById('thai-text');
-const romanization = document.getElementById('romanization');
-const playButton = document.getElementById('play-button');
-const audioPlayer = document.getElementById('audio-player');
-const segmentBody = document.getElementById('segment-body');
+```
+瀏覽器 → localhost:4200/api/v1/translations   （瀏覽器以為是同一個來源，放行）
+           ↓ Angular 開發伺服器在背後轉發
+         localhost:8080/api/v1/translations
+```
 
-form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const input = sourceInput.value.trim();
-    if (input === '') {
-        statusText.textContent = '請輸入中文';
-        return;
-    }
+好處是**後端一行都不用改**，也不必為了開發方便而在正式程式裡開放跨來源存取。
 
-    submitButton.disabled = true;
-    statusText.textContent = '查詢中…';
-    resultSection.classList.add('hidden');
+### 二、`/audio` 也要一起代理
 
-    try {
-        const response = await fetch('/api/v1/translations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sourceText: input })
-        });
+後端回傳的音檔是相對網址 `"/audio/a3f9c2.mp3"`。
+不代理的話，`<audio>` 會去找 `localhost:4200/audio/...` —— 那裡沒有檔案。
 
-        const payload = await response.json();
+### 三、Angular 版本
 
-        if (!response.ok) {
-            statusText.textContent = payload.message || '查詢失敗';
-            return;
-        }
+`ng new` 產生的是當下最新版。近年的 Angular 預設使用 standalone component
+（不需要 NgModule）與 `signal`，語法與舊教學差異很大。
 
-        render(payload);
-        statusText.textContent = payload.fromCache ? '（來自快取）' : '';
-    } catch (error) {
-        statusText.textContent = '無法連線至伺服器';
-    } finally {
-        submitButton.disabled = false;
-    }
-});
+**下面的程式碼是結構示意，不是逐字照抄的範本。**
+實作時若語法對不上實際產生的版本，以 context7 查詢 Angular 官方文件為準，
+不要照抄舊寫法硬套。
 
-function render(payload) {
-    thaiText.textContent = payload.thaiText;
-    romanization.textContent = payload.romanization;
+---
 
-    if (payload.audioUrl) {
-        audioPlayer.src = payload.audioUrl;
-        playButton.classList.remove('hidden');
-    } else {
-        playButton.classList.add('hidden');
-    }
+- [ ] **Step 1：確認工具鏈**
 
-    segmentBody.innerHTML = '';
-    payload.segments.forEach((segment) => {
-        const row = document.createElement('tr');
-        row.innerHTML =
-            `<td>${segment.chineseText}</td>` +
-            `<td>${segment.thaiText}</td>` +
-            `<td>${segment.romanization}</td>`;
-        segmentBody.appendChild(row);
-    });
+```powershell
+node --version     # 需要 Node.js（Angular 的執行環境，與 Java 無關）
+npm --version
+ng version         # 沒有的話：npm install -g @angular/cli
+```
 
-    resultSection.classList.remove('hidden');
+Expected: 三個指令都有版本號輸出。
+
+**若 `node` 不存在**：到 nodejs.org 下載 LTS 版安裝，重開終端機後再試。
+這一步失敗就不要往下做，後面每一步都依賴它。
+
+- [ ] **Step 2：建立 Angular 專案**
+
+```powershell
+cd C:\Tim\language_project
+ng new frontend --routing=false --style=css --skip-git
+```
+
+- `--skip-git` 很重要：這個資料夾要屬於現有的 repo，不要再生一個 `.git`
+- `--routing=false`：只有一個畫面，不需要路由
+- 詢問 SSR / 伺服器端渲染時選 **No**（會多出一整套伺服器程式，這裡用不到）
+
+- [ ] **Step 3：把 `node_modules` 排除在版控外**
+
+在專案根目錄的 `.gitignore` 末端加入：
+
+```gitignore
+### Angular 前端 ###
+frontend/node_modules/
+frontend/.angular/
+frontend/dist/
+```
+
+**這一步一定要在第一次 commit 之前做完。**
+`node_modules` 動輒數萬個檔案，一旦進了 git 歷史，事後清除代價極高。
+
+驗證：`git status` 不該出現任何 `frontend/node_modules/` 底下的檔案。
+
+- [ ] **Step 4：設定開發代理**
+
+建立 `frontend/proxy.conf.json`：
+
+```json
+{
+  "/api": { "target": "http://localhost:8080", "secure": false },
+  "/audio": { "target": "http://localhost:8080", "secure": false }
+}
+```
+
+在 `frontend/angular.json` 的 `serve` 設定中掛上這個檔案
+（實際欄位路徑依產生的版本而定，通常是 `architect.serve.options.proxyConfig`）。
+
+或改在 `package.json` 的 script 直接指定：
+
+```json
+"start": "ng serve --proxy-config proxy.conf.json"
+```
+
+- [ ] **Step 5：建立型別定義**
+
+`frontend/src/app/models/translation.model.ts`：
+
+```typescript
+// 對應後端 TranslationSegmentDto
+export interface TranslationSegment {
+  seqNo: number;
+  chineseText: string;
+  thaiText: string;
+  romanization: string;
 }
 
-playButton.addEventListener('click', () => audioPlayer.play());
+// 對應後端 TranslationResponseDto
+export interface TranslationResponse {
+  sourceText: string;
+  thaiText: string;
+  romanization: string;
+  audioUrl: string | null;   // 語音失敗時是 null
+  fromCache: boolean;
+  segments: TranslationSegment[];
+}
+
+// 對應後端 ErrorResponseDto
+export interface ErrorResponse {
+  code: string;
+  message: string;
+  traceId: string;
+}
 ```
 
-- [ ] **Step 4：手動驗證**
+★ 欄位名稱必須與後端 record 完全一致，大小寫也要一樣。
+不一致不會有錯誤訊息，只會拿到 `undefined`。
 
-先確認 `application-local.yml` 已填入實際的 OpenAI API Key，再啟動應用程式：
+- [ ] **Step 6：建立呼叫 API 的 Service**
 
-Run: `.\mvnw.cmd -B spring-boot:run`
+`frontend/src/app/services/translation.service.ts`
 
-開啟瀏覽器至 `http://localhost:8080`，輸入「我想喝酒」，預期：
-- 顯示泰文與拼音
-- 顯示四列逐詞對照
-- 出現播放按鈕，點擊可聽到發音
-- 再查一次同樣內容，狀態列顯示「（來自快取）」且回應明顯變快
+職責只有一件事：把 HTTP 呼叫包起來，讓畫面元件不必碰網路細節。
 
-- [ ] **Step 5：Commit**
-
-```bash
-git add src/main/resources/static/
-git commit -m "$(cat <<'EOF'
-新增查詢頁面
-
-Feat:
-- 新增靜態查詢頁面，顯示泰文、拼音、逐詞對照與發音播放
-- 音檔不存在時隱藏播放按鈕
-- 顯示是否來自快取，便於開發階段確認費用
-EOF
-)"
+```typescript
+translate(sourceText: string): Observable<TranslationResponse> {
+  return this.http.post<TranslationResponse>('/api/v1/translations', { sourceText });
+}
 ```
+
+★ 網址寫相對路徑 `/api/...`，不要寫 `http://localhost:8080/...`。
+寫死主機的話，換一台電腦或上線就要改程式。相對路徑交給第 4 步的代理處理。
+
+★ 後端成功時回 200（快取）或 201（新建立），兩種都算成功，不用特別處理。
+
+- [ ] **Step 7：建立查詢畫面元件**
+
+`frontend/src/app/translation/`（component + template + style）
+
+畫面要素：
+
+| 元素 | 行為 |
+|---|---|
+| 輸入框 | `maxlength=100`，與後端的 `INPUT_TOO_LONG` 一致 |
+| 查詢按鈕 | 送出中要停用，避免連點重複送出 |
+| 狀態訊息 | 查詢中／錯誤訊息 |
+| 泰文 | 大字顯示 |
+| 羅馬拼音 | 次要樣式 |
+| 播放按鈕 | **`audioUrl` 為 null 時不顯示** |
+| 逐詞對照表 | 中文／泰文／拼音三欄，照 `seqNo` 順序 |
+| 快取標示 | 顯示 `fromCache`，開發階段可以直接看出這次有沒有花錢 |
+
+錯誤處理：後端回的錯誤格式是統一的，直接顯示 `error.error.message` 即可
+（那是 `ErrorResponseDto` 的 `message`，本來就是寫給使用者看的中文）。
+
+特別要處理 `INPUT_UNSUPPORTED_CONTENT` —— 使用者輸入「嘎逼」這類詞時會收到它，
+訊息是「輸入內容無法翻譯」，這是正常結果不是系統故障，不要顯示成錯誤畫面。
+
+- [ ] **Step 8：手動驗證**
+
+兩個終端機同時開著：
+
+```powershell
+# 終端機 1：後端
+cd C:\Tim\language_project
+.\mvnw.cmd spring-boot:run
+
+# 終端機 2：前端
+cd C:\Tim\language_project\frontend
+npm start
+```
+
+瀏覽器開 `http://localhost:4200`，逐項確認：
+
+| 驗證項目 | 預期 |
+|---|---|
+| 查「我想喝酒」 | 顯示泰文、拼音、四列逐詞對照 |
+| 播放按鈕 | 按下去聽得到泰文 |
+| **同一句再查一次** | 明顯變快，`fromCache` 變成 true |
+| 查一個新詞 | `fromCache` 是 false |
+| 送出空白 | 顯示「輸入內容不可為空」 |
+| 查「嘎逼」 | 顯示「輸入內容無法翻譯」，且**資料庫不該多出任何一筆** |
+| 關掉後端再查 | 顯示錯誤訊息而不是整個畫面壞掉 |
+
+★ 倒數第二項要順便去資料庫確認 `translation_query` 和 `vocabulary` 都沒有新增，
+那是 Task 8 那道防線是否真的生效的唯一驗證方式。
+
+- [ ] **Step 9：回報，等 Awei 確認後才 commit**
+
+⚠ 依「執行方式」的規定，這一步只做到回報為止，不要自行 commit。
 
 ---
 
@@ -2943,6 +2971,8 @@ EOF
 | OpenAI API Key | 需申請並填入 `application-local.yml` |
 | 單價查證 | 需查證 OpenAI 官方最新定價，更新 `application.yml` 的 `ai.pricing` |
 | 泰語 TTS 品質 | 建議試聽比較 OpenAI 與 Google / Azure 的泰語語音；語音已抽成介面，更換只需新增實作類別 |
-| Token 用量精準化 | Task 6 目前以字元數估算 token，待確認 Spring AI 2.0.0 取得 usage metadata 的方式後改為實際值 |
+| ~~Token 用量精準化~~ | **已完成**。Task 6 改用 `responseEntity()` 取得真實 token 數，見已知偏離第 9 條 |
 | 音檔資料夾 | `audio/` 已列入 `.gitignore`，正式部署時需確認寫入權限 |
 | 會員功能 | 規格第 11 節已規劃，現有結構不需改動 |
+| 前端上線方式 | Task 10 只做到「本機跑得起來」。真的要上線時需決定：Angular build 進 Spring `static/`（單一應用、無跨來源問題），或前後端分開部署（需處理正式環境 CORS 與網址設定） |
+| 並行查詢 | 同一句話同時被查兩次會撞唯一鍵，見已知偏離第 18 條。單人使用不會遇到 |

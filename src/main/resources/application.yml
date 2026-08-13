@@ -19,7 +19,12 @@ spring:
       chat:
         options:
           # 金鑰寫在 application-local.yml，不進版本控制。
-          model: gpt-4o-mini
+          #
+          # 為什麼不用便宜的 mini：2026-08-13 實測 gpt-4o-mini 翻泰文會翻一半停手，
+          # 回出「ฉันอยาก吃ข้าว」這種中泰混雜的結果，逐詞拼音也會退回中文拼音。
+          # 提示詞已寫得非常明確仍然如此，那是模型能力不足，不是講不清楚。
+          # 泰文屬於相對冷門的語言，需要主力模型才撐得住。
+          model: gpt-5.5
       audio:
         speech:
           # 語音設定採用扁平寫法。舊版的 audio.speech.options.* 巢狀形式已標記為棄用。
@@ -49,9 +54,22 @@ spring:
 ai:
   pricing:
     openai:
-      # 實際數值需查證 OpenAI 官方定價後填入。單位為「每一 token / 每一字元」的美金價格。
+      # 單位是「每一個 token 的美金價格」。
+      # 官網公布的是「每 100 萬 token 多少錢」，填進來要除以 1,000,000。
+      # 查證日期 2026-08-13，來源 developers.openai.com/api/docs/pricing
+      #
+      # gpt-5.5：輸入 $5.00 / 1M、輸出 $30.00 / 1M
+      # ★ 換模型時這兩個數字一定要跟著改，否則帳面數字是錯的。
+      #   （2026-08-13 之前這裡放的是計畫文件的佔位值 0.000005 / 0.000015，
+      #     而當時實際用的 gpt-4o-mini 是 0.00000015 / 0.0000006，
+      #     費用被高估了三十幾倍。）
       translation-input-price: 0.00000500
-      translation-output-price: 0.00001500
+      translation-output-price: 0.00003000
+
+      # gpt-4o-mini-tts：文字輸入 $0.60 / 1M token、語音輸出 $12.00 / 1M token。
+      # ⚠ 我們的記帳是「按字元」算的，但 OpenAI 實際是「按 token」收費，
+      #   而且主要成本在語音輸出那一段，我們現在量不到。
+      #   所以語音的費用是粗估值，不是精確值。詳見計畫文件的已知偏離。
       speech-price: 0.00001500
 
 audio:

@@ -132,7 +132,7 @@ class VocabularyRepositoryTest {
          *   那 NVARCHAR 到底標對了沒就驗不到了 —— 而那正是這支測試唯一的目的。
          */
         vocabularyRepository.saveAndFlush(
-                buildVocabulary("酒", "เหล้า", "lâo", VocabularySourceTypeEnum.SEGMENT));
+                buildVocabulary("測試勿刪酒", "เหล้า", "lâo", VocabularySourceTypeEnum.SEGMENT));
 
         /*
          * ── 第二段：執行要測的動作（Act）────────────────────────────
@@ -144,7 +144,7 @@ class VocabularyRepositoryTest {
          * 查得到就裝著 VocabularyDto，查不到就是空的。
          * 用它的好處是強迫你處理「查不到」的情況，不會忘記而爆 null。
          */
-        Optional<VocabularyDto> found = vocabularyRepository.findByChineseText("酒");
+        Optional<VocabularyDto> found = vocabularyRepository.findByChineseText("測試勿刪酒");
 
         /*
          * ── 第三段：檢查結果（Assert）───────────────────────────────
@@ -189,9 +189,9 @@ class VocabularyRepositoryTest {
         // ── 第一段：準備資料 ──
         // 先塞兩個詞進資料庫，等一下要驗證只有這兩個會被查出來。
         vocabularyRepository.saveAndFlush(
-                buildVocabulary("我", "ฉัน", "chǎn", VocabularySourceTypeEnum.SEGMENT));
+                buildVocabulary("測試勿刪我", "ฉัน", "chǎn", VocabularySourceTypeEnum.SEGMENT));
         vocabularyRepository.saveAndFlush(
-                buildVocabulary("水", "น้ำ", "náam", VocabularySourceTypeEnum.SEGMENT));
+                buildVocabulary("測試勿刪水", "น้ำ", "náam", VocabularySourceTypeEnum.SEGMENT));
 
         /*
          * ── 第二段：執行要測的動作 ──
@@ -203,7 +203,7 @@ class VocabularyRepositoryTest {
          * 測試要涵蓋「該出現的有出現」和「不該出現的沒出現」兩面。
          */
         List<String> existing =
-                vocabularyRepository.findExistingChineseTexts(List.of("我", "水", "沒有這個詞"));
+                vocabularyRepository.findExistingChineseTexts(List.of("測試勿刪我", "測試勿刪水", "測試勿刪不存在的詞"));
 
         /*
          * ── 第三段：檢查結果 ──
@@ -211,13 +211,13 @@ class VocabularyRepositoryTest {
          * containsExactlyInAnyOrder 的意思是：
          *   「我主張這個清單裡『剛好』就是這些東西，順序不管。」
          *
-         *   ✓ 通過：["我", "水"] 或 ["水", "我"]
-         *   ✗ 失敗：["我"]                  → 少了「水」
-         *   ✗ 失敗：["我", "水", "沒有這個詞"] → 多了不該有的
+         *   ✓ 通過：["測試勿刪我", "測試勿刪水"] 或 ["測試勿刪水", "測試勿刪我"]
+         *   ✗ 失敗：["測試勿刪我"]                  → 少了「水」
+         *   ✗ 失敗：["測試勿刪我", "測試勿刪水", "測試勿刪不存在的詞"] → 多了不該有的
          *
          * 用「剛好等於」而不是「有包含」，才能同時驗證上面兩種錯誤。
          */
-        assertThat(existing).containsExactlyInAnyOrder("我", "水");
+        assertThat(existing).containsExactlyInAnyOrder("測試勿刪我", "測試勿刪水");
     }
 
     /*

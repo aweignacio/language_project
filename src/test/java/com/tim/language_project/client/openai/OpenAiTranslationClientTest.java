@@ -299,6 +299,47 @@ class OpenAiTranslationClientTest {
     }
 
     /*
+     * ═══ 測試六：泰文裡混到中文字，要當成失敗 ═══════════════════════════
+     *
+     * 這是真實跑出來的狀況（2026-08-13）。查「我想吃飯」時，gpt-4o-mini 回了：
+     *
+     *     thaiText = "ฉันอยาก吃ข้าว"
+     *                        ↑ 「吃」沒翻出來，中文原字直接貼在泰文中間
+     *
+     * 它看起來很像成功 —— 有泰文、有拼音、有逐詞、translatable 是 true ——
+     * 所以前面每一道檢查都會放行，然後這個半成品會被永久寫進快取與單字庫。
+     *
+     * ★ 使用者是拿這個來背泰文的。一個混著中文的假泰文比沒有答案更糟。
+     */
+    @Test
+    @DisplayName("泰文欄位混入中文字時應視為格式錯誤")
+    void shouldRejectThaiTextContainingChinese() {
+        givenModelReplies("""
+                {
+                  "thaiText": "ฉันอยาก吃ข้าว",
+                  "romanization": "chǎn yàak chīi fàn",
+                  "words": [
+                    {"chineseText": "我", "thaiText": "ฉัน", "romanization": "chǎn"},
+                    {"chineseText": "吃", "thaiText": "กิน", "romanization": "chīi"}
+                  ],
+                  "translatable": true
+                }
+                """, 110, 30);
+
+        assertThatThrownBy(() -> openAiTranslationClient.translate("我想吃飯"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
+
+        // 呼叫確實發生過也被收費了，用量照記，只是標記失敗
+        verify(apiUsageRecorder).record(
+                any(), any(), anyString(), any(),
+                eq(110L), eq(30L),
+                any(), any(),
+                eq(false));
+    }
+
+    /*
      * ═══ 測試五：模型說「這翻不出來」時，不可硬湊一個答案 ═══════════════
      *
      * 情境：使用者輸入「嘎逼」這種不存在的詞。
