@@ -31,6 +31,15 @@
  *      因為這個專案是 zoneless 模式 —— Angular 不會再暗中監視所有變數，
  *      它只重畫「訊號說自己變了」的地方。普通變數改了，畫面不會跟著動。
  *
+ *    不想自己打字的話，還沒查過東西時畫面下方會列出幾句範例（examples）。
+ *    點下去走的是 useExample，效果跟你自己打完一模一樣：
+ *
+ *        useExample('我想喝酒')  →  sourceText.set('我想喝酒')
+ *                                →  輸入框因為 [value]="sourceText()" 跟著變
+ *
+ *    ★ 點範例「只填字，不送出」。因為沒查過的句子要真的去呼叫 OpenAI，
+ *      是會花錢的，不該讓你手滑點到就直接打一次 API。
+ *
  * ── 第 2 步｜你按下「查詢」，進入 search() ────────────────────────────────
  *
  *    先把畫面清乾淨、把按鈕鎖起來：
@@ -136,6 +145,9 @@ const AUDIO_GAIN = 3;
 /** 後端在「AI 判定翻不出來」時回的錯誤碼，要當成正常結果顯示。 */
 const CODE_UNTRANSLATABLE = 'INPUT_UNSUPPORTED_CONTENT';
 
+/** 空畫面上列出的範例句，點一下會填進輸入框。 */
+const EXAMPLES = ['我想喝酒', '廁所在哪裡', '這個多少錢'];
+
 @Component({
   selector: 'app-translation',
   imports: [],
@@ -164,12 +176,23 @@ export class Translation {
   /** 灰色提示訊息，目前只有「翻不出來」會用到。 */
   protected readonly noticeMessage = signal<string | null>(null);
 
+  /** 空畫面上的範例句，給 translation.html 的 @for 跑。 */
+  protected readonly examples = EXAMPLES;
+
   /** Web Audio 的放大鏈，第一次按播放時才建立，之後重複使用。 */
   private audioContext?: AudioContext;
 
   /** 輸入框每打一個字就同步到 sourceText 訊號。 */
   protected onInput(event: Event): void {
     this.sourceText.set((event.target as HTMLInputElement).value);
+  }
+
+  /**
+   * 點下範例句：只把文字填進輸入框，不自動送出。
+   * 沒查過的句子送出去是要呼叫 OpenAI 花錢的，送不送由使用者自己按。
+   */
+  protected useExample(text: string): void {
+    this.sourceText.set(text);
   }
 
   /** 按下查詢，或在輸入框按 Enter。 */

@@ -5,7 +5,22 @@
   <title>中泰翻譯查詢</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 瀏覽器網址列／手機狀態列跟著頁面用同一個深色，避免上方露出一條白邊 -->
+  <meta name="theme-color" content="#0B100E">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+
+  <!--
+    字型：三種文字各自交給合適的字體，不共用一套。
+      Noto Serif TC   → 中文（標題與內文，襯線比黑體更有辭典感）
+      Noto Serif Thai → 泰文（結果區的主角，字級拉大時筆畫才撐得住）
+      IBM Plex Mono   → 羅馬拼音與小標籤（等寬字讓拼音好對照）
+    先 preconnect 是讓瀏覽器提早把連線建好，字型晚一點才到、畫面不會空白。
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+TC:wght@400;500;600;700&family=Noto+Serif+Thai:wght@400;500;600&display=swap"
+    rel="stylesheet">
 </head>
 <body>
   <app-root></app-root>

@@ -1,4 +1,41 @@
-/* 全域樣式。各元件自己的樣式寫在元件的 .css 裡，這裡只放整頁共用的東西。 */
+/*
+ * 全域樣式。各元件自己的樣式寫在元件的 .css 裡，
+ * 這裡只放整頁共用的東西：色票、字型變數、背景氛圍、共用動畫。
+ */
+
+/* ─── 設計變數 ─────────────────────────────────────────────────────────────
+ * 整頁只用這一組值，改色改字型都只動這裡，不必翻遍每個 .css。
+ * 主題是「泰式漆器」：深墨綠底 × 金箔 × 象牙白。
+ */
+:root {
+  /* 底色，由深到淺 */
+  --ink-900: #0b100e;
+  --ink-800: #101815;
+  --ink-700: #16211d;
+
+  /* 金色，主角色 */
+  --gold-400: #e6c67e;
+  --gold-500: #c9a253;
+  --gold-600: #9a7b34;
+
+  /* 玉綠，用在「快取」這類次要標記 */
+  --jade: #6fb8a0;
+
+  /* 象牙白，文字色。三個層級對應主要／次要／最弱的資訊 */
+  --ivory: #f1e9da;
+  --ivory-dim: rgba(241, 233, 218, 0.62);
+  --ivory-faint: rgba(241, 233, 218, 0.38);
+
+  /* 錯誤色，刻意選偏橘的紅，才不會跟金色打架 */
+  --danger: #e0796a;
+
+  /* 分隔線，用半透明金色而不是灰色，線條才融進整體色調 */
+  --line: rgba(230, 198, 126, 0.16);
+
+  --font-serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+  --font-thai: "Noto Serif Thai", "Leelawadee UI", "Noto Sans Thai", sans-serif;
+  --font-mono: "IBM Plex Mono", "Consolas", monospace;
+}
 
 html,
 body {
@@ -7,9 +44,73 @@ body {
 }
 
 body {
-  background: #f7f8fa;
-  color: #1f2933;
-  /* 泰文字型放在中文字型之後，讓兩種文字都有合適的字型可用 */
-  font-family: "Segoe UI", "Microsoft JhengHei", "Noto Sans Thai", sans-serif;
+  min-height: 100vh;
+  color: var(--ivory);
+  font-family: var(--font-serif);
   line-height: 1.6;
+  /* 兩團極淡的光暈：右上偏金、左下偏玉，讓深色底不是一片死黑 */
+  background-color: var(--ink-900);
+  background-image:
+    radial-gradient(1100px 620px at 88% -10%, rgba(201, 162, 83, 0.17), transparent 62%),
+    radial-gradient(900px 700px at -10% 108%, rgba(111, 184, 160, 0.10), transparent 60%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * 顆粒質感。純色漸層在大面積上會看到一圈一圈的色階斷層，
+ * 疊一層極淡的雜訊可以把斷層打散，順便做出紙張／漆面的手感。
+ * 這層蓋在最上面但 pointer-events: none，不會擋到任何點擊。
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  color: var(--ink-900);
+  background: var(--gold-400);
+}
+
+/* 鍵盤 Tab 過去時的焦點框。滑鼠點擊不會觸發 :focus-visible，所以不會到處閃金框 */
+:focus-visible {
+  outline: 2px solid var(--gold-400);
+  outline-offset: 3px;
+}
+
+/* ─── 共用動畫 ─────────────────────────────────────────────────────────────
+ * .reveal 是「載入時由下往上淡入」。加 style="--delay: .1s" 就能錯開時間，
+ * 讓標題、副標、查詢列一個接一個進場，而不是全部同時跳出來。
+ */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.reveal {
+  animation: rise 0.75s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--delay, 0s);
+}
+
+/* 使用者在系統設定關掉動畫效果時（暈眩、前庭敏感），這裡整組停掉 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,25 +1,49 @@
 <main class="page">
 
+  <!-- 右上角那個超大的淡金泰文字，純裝飾。aria-hidden 讓螢幕閱讀器跳過它 -->
+  <span class="page__watermark" aria-hidden="true">ไทย</span>
+
   <header class="page__header">
-    <h1 class="page__title">中泰翻譯查詢</h1>
-    <p class="page__subtitle">輸入中文，查泰文、羅馬拼音與逐詞對照</p>
+    <p class="page__eyebrow reveal">THAI · 泰語</p>
+
+    <h1 class="page__title reveal" style="--delay: 0.08s">中泰翻譯查詢</h1>
+
+    <p class="page__subtitle reveal" style="--delay: 0.16s">
+      輸入中文，查泰文、羅馬拼音與逐詞對照
+    </p>
+
+    <!-- 金線 + 菱形寶石的分隔飾線，左短右長刻意做不對稱 -->
+    <div class="rule reveal" style="--delay: 0.24s" aria-hidden="true">
+      <span class="rule__gem"></span>
+    </div>
   </header>
 
   <!-- 查詢列 -->
-  <form class="search" (submit)="$event.preventDefault(); search()">
-    <input
-      class="search__input"
-      type="text"
-      maxlength="100"
-      placeholder="例如：我想喝酒"
-      [value]="sourceText()"
-      (input)="onInput($event)"
-      [disabled]="loading()" />
+  <form class="search reveal" style="--delay: 0.32s" (submit)="$event.preventDefault(); search()">
+    <div class="search__field">
+      <input
+        class="search__input"
+        type="text"
+        maxlength="100"
+        aria-label="要翻譯的中文"
+        placeholder="例如：我想喝酒"
+        [value]="sourceText()"
+        (input)="onInput($event)"
+        [disabled]="loading()" />
+
+      <!-- 聚焦時由左往右刷出來的金線，取代預設的方框外框 -->
+      <span class="search__underline" aria-hidden="true"></span>
+    </div>
 
     <button class="search__button" type="submit" [disabled]="loading()">
       {{ loading() ? '查詢中…' : '查詢' }}
     </button>
   </form>
+
+  <!-- 查詢中的跑動光條，讓等待的那幾秒不是完全靜止 -->
+  @if (loading()) {
+    <div class="progress" aria-hidden="true"><span></span></div>
+  }
 
   <!-- 紅色錯誤：真的出事了 -->
   @if (errorMessage()) {
@@ -29,6 +53,24 @@
   <!-- 灰色提示：AI 說翻不出來，這是正常結果 -->
   @if (noticeMessage()) {
     <p class="message message--notice">{{ noticeMessage() }}</p>
+  }
+
+  <!-- 還沒查過任何東西時的空畫面：裝飾、一句引導，以及點一下就填進輸入框的範例句 -->
+  @if (!loading() && !result() && !errorMessage() && !noticeMessage()) {
+    <section class="empty">
+      <p class="empty__mark" aria-hidden="true">สวัสดี</p>
+      <p class="empty__hint">在上面打一句中文，或從下面挑一句</p>
+
+      <ul class="examples">
+        @for (example of examples; track example) {
+          <li>
+            <button class="examples__chip" type="button" (click)="useExample(example)">
+              {{ example }}
+            </button>
+          </li>
+        }
+      </ul>
+    </section>
   }
 
   <!-- 查詢結果 -->
@@ -50,7 +92,14 @@
 
       <!-- audioUrl 為 null 代表語音沒生出來，此時整顆播放鍵不出現 -->
       @if (translation.audioUrl) {
-        <button class="play" type="button" (click)="play()">播放發音</button>
+        <button class="play" type="button" (click)="play()">
+          <span class="play__icon" aria-hidden="true">
+            <svg viewBox="0 0 12 12" width="9" height="9" fill="currentColor">
+              <path d="M2 0.6 11 6 2 11.4z" />
+            </svg>
+          </span>
+          播放發音
+        </button>
       }
 
       @if (translation.segments.length) {
@@ -58,6 +107,7 @@
           <caption class="segments__caption">逐詞對照</caption>
           <thead>
             <tr>
+              <th scope="col" class="segments__seq">#</th>
               <th scope="col">中文</th>
               <th scope="col">泰文</th>
               <th scope="col">羅馬拼音</th>
@@ -66,7 +116,8 @@
           <tbody>
             @for (segment of translation.segments; track segment.seqNo) {
               <tr>
-                <td>{{ segment.chineseText }}</td>
+                <td class="segments__seq">{{ segment.seqNo }}</td>
+                <td class="segments__chinese">{{ segment.chineseText }}</td>
                 <td class="segments__thai">{{ segment.thaiText }}</td>
                 <td class="segments__romanization">{{ segment.romanization }}</td>
               </tr>
