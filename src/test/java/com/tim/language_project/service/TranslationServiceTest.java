@@ -420,17 +420,15 @@ class TranslationServiceTest {
     }
 
     /*
-     * ═══ 測試十一：不得自動產生中文音檔 ═════════════════════════════════
+     * ═══ 測試十一：輸入中文時，不得自動產生中文音檔 ═════════════════════
      *
-     * ★ 決策 14：中文音檔不自動產生。
-     *   自動產生的話，每次查詢都要多打一次 OpenAI、多等一兩秒，
-     *   而唯一的使用者根本不需要聽中文。
+     * 你自己打「我」進來，中文那面就是你剛打的字 ——
+     * 唸給你聽沒有任何價值，卻要多打一次 OpenAI、每次查詢多等一兩秒。
      *
-     *   機制本身是完整的（把 auto-generate 改成 [TH, ZH] 就會開始生），
-     *   這裡守的是「預設不要生」。
+     * ★ 注意這一條只擋「中翻泰」。反方向要生，見測試十二。
      */
     @Test
-    @DisplayName("不得自動產生中文音檔")
+    @DisplayName("輸入中文時不得自動產生中文音檔")
     void shouldNotAutoGenerateChineseAudio() {
         when(translationQueryRepository.findByKey(
                 "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
@@ -449,6 +447,44 @@ class TranslationServiceTest {
         assertThat(response.chineseAudioUrl()).isNull();
         verify(audioAssetService, never())
                 .resolveAudioUrl(anyString(), eq(SpeechLanguageEnum.ZH));
+    }
+
+    /*
+     * ═══ 測試十二：輸入泰文時，中文音檔要自動產生 ═══════════════════════
+     *
+     * ★ 這一條是測試十一的反面，兩個合起來才是完整的規則。
+     *
+     *   你貼一段看不懂的泰文進來，中文那面是「翻譯結果」——
+     *   你需要聽它確認自己有沒有理解對，所以要生。
+     *
+     *   漏掉這條的話，泰翻中的中文永遠是灰色的鍵，
+     *   而且不會有任何錯誤訊息，只會讓人以為「這個功能壞了」。
+     */
+    @Test
+    @DisplayName("輸入泰文時應自動產生中文音檔")
+    void shouldAutoGenerateChineseAudioWhenInputIsThai() {
+        when(translationQueryRepository.findByKey(
+                "ผมอยากดื่มเหล้า", TranslationDirectionEnum.TH_TO_ZH, null))
+                .thenReturn(Optional.empty());
+        when(translationClient.translate(
+                "ผมอยากดื่มเหล้า", TranslationDirectionEnum.TH_TO_ZH, null))
+                .thenReturn(thaiToChineseResult());
+        when(audioAssetService.resolveAudioUrl("ผมอยากดื่มเหล้า", SpeechLanguageEnum.TH))
+                .thenReturn(Optional.of("/audio/th/a1b2c3.mp3"));
+        when(audioAssetService.resolveAudioUrl("我想喝酒", SpeechLanguageEnum.ZH))
+                .thenReturn(Optional.of("/audio/zh/d4e5f6.mp3"));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.empty());
+
+        TranslationResponseDto response =
+                translationService.translate("ผมอยากดื่มเหล้า", SpeakerGenderEnum.MALE);
+
+        // ★ 重點：中文那面真的去合成了，而且網址落在 zh/ 資料夾
+        assertThat(response.chineseAudioUrl()).isEqualTo("/audio/zh/d4e5f6.mp3");
+        verify(audioAssetService).resolveAudioUrl("我想喝酒", SpeechLanguageEnum.ZH);
+
+        // 泰文那面照樣要生 —— 那才是你要學的發音
+        assertThat(response.thaiAudioUrl()).isEqualTo("/audio/th/a1b2c3.mp3");
     }
 
     /** 一個沒有多重說法的單字結果（模擬「大部分的詞就只有一種說法」）。 */

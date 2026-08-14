@@ -120,9 +120,25 @@
       <p class="result__thai">{{ translation.thaiText }}</p>
       <p class="result__romanization">{{ translation.romanization }}</p>
 
-      <!-- 泰翻中時，中文那面是翻譯結果，要顯示出來 -->
+      <!--
+        泰翻中時，中文那面是翻譯結果，要顯示出來，而且要能播 ——
+        你貼一段看不懂的泰文進來，聽中文才能確認自己有沒有理解對。
+        中翻泰時不顯示，因為那時中文就是你剛打進去的字。
+      -->
       @if (translation.direction === 'TH_TO_ZH') {
-        <p class="result__chinese">{{ translation.chineseText }}</p>
+        <p class="result__chinese">
+          {{ translation.chineseText }}
+
+          <button
+            class="wordplay"
+            type="button"
+            [class.wordplay--ready]="translation.chineseAudioUrl"
+            [class.wordplay--loading]="isSynthesizing(translation.chineseText)"
+            [attr.aria-label]="'播放中文 ' + translation.chineseText"
+            (click)="playChinese(translation)">
+            {{ isSynthesizing(translation.chineseText) ? '···' : '▶' }}
+          </button>
+        </p>
       }
 
       <!-- thaiAudioUrl 為 null 代表語音沒生出來，此時整顆播放鍵不出現 -->

@@ -755,6 +755,10 @@
 
 /* 泰翻中時中文那面是翻譯結果，字級介於泰文與拼音之間 */
 .result__chinese {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
   margin: 0.9rem 0 0;
   font-size: 1.35rem;
   line-height: 1.6;

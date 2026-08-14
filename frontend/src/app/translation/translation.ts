@@ -409,6 +409,38 @@ export class Translation {
   }
 
   /**
+   * 播放整句的中文翻譯結果（只有泰翻中時畫面上才有這顆鍵）。
+   *
+   * 後端在泰翻中時就會自動生好中文音檔，所以正常情況下這顆鍵一開始就是亮的。
+   * 萬一那次合成失敗（網路問題等），這裡照樣走「點了才生」那條路重試。
+   */
+  protected playChinese(translation: TranslationResponse): void {
+    if (translation.chineseAudioUrl) {
+      this.playAudio(translation.chineseAudioUrl);
+      return;
+    }
+
+    const speechText = translation.chineseText;
+
+    if (this.isSynthesizing(speechText)) {
+      return;
+    }
+
+    this.markSynthesizing(speechText, true);
+
+    this.translationService.synthesize(speechText, 'ZH').subscribe({
+      next: (response) => {
+        this.markSynthesizing(speechText, false);
+        this.result.set({ ...translation, chineseAudioUrl: response.audioUrl });
+        this.playAudio(response.audioUrl);
+      },
+      error: () => {
+        this.markSynthesizing(speechText, false);
+      },
+    });
+  }
+
+  /**
    * 點擊逐詞或說法的播放鍵。
    *
    *   已經有音檔  → 直接播

@@ -85,15 +85,21 @@ package com.tim.language_project.service;
  *
  * ── 第 6 步｜生語音（哪些語言要生，由設定決定）─────────────────────────
  *
- *        thaiAudioUrl    = autoGenerateAudio(result.thaiText(),    TH);
- *        chineseAudioUrl = autoGenerateAudio(result.chineseText(), ZH);
+ *        thaiAudioUrl    = autoGenerateAudio(result.thaiText(),    TH, direction);
+ *        chineseAudioUrl = autoGenerateAudio(result.chineseText(), ZH, direction);
  *
  *    ★ 這裡不直接呼叫 SpeechClient，一律走 AudioAssetService ——
  *      那一層會先查 audio_asset，同一段文字全站只合成一次。
  *
- *    ★ 「哪些語言要自動生」是設定值 audio.storage.auto-generate，預設只有 TH。
- *      中文音檔的機制已完整建置，只是預設不主動產生 ——
- *      目前的使用者是中文母語者，不需要聽中文，為它每次多等一兩秒不划算。
+ *    ★ 中文音檔「只有你輸入泰文時才生」：
+ *
+ *          你打「我想喝酒」（中翻泰）→ 只生泰文。
+ *              中文是你自己剛打的字，唸給你聽沒有價值，
+ *              為它多打一次 OpenAI、每次查詢多等一兩秒不划算。
+ *
+ *          你貼「ผม」（泰翻中）→ 泰文和中文都生。
+ *              中文是「翻譯結果」，你需要聽它確認自己有沒有理解對。
+ *
  *      沒生的那個回 null，前端顯示成灰色的鍵，點了才生。
  *
  *    ★ 逐詞的音檔「不在這裡生」，只查現成的（見 toSegmentDtos）。
@@ -235,9 +241,11 @@ public class TranslationService {
             throw new BusinessException(ErrorCodeEnum.INPUT_UNSUPPORTED_CONTENT);
         }
 
-        String thaiAudioUrl = autoGenerateAudio(result.thaiText(), SpeechLanguageEnum.TH);
-        String chineseAudioUrl = autoGenerateAudio(result.chineseText(), SpeechLanguageEnum.ZH);
-        List<TranslationVariantDto> variants = buildVariants(result);
+        String thaiAudioUrl =
+                autoGenerateAudio(result.thaiText(), SpeechLanguageEnum.TH, direction);
+        String chineseAudioUrl =
+                autoGenerateAudio(result.chineseText(), SpeechLanguageEnum.ZH, direction);
+        List<TranslationVariantDto> variants = buildVariants(result, direction);
 
         try {
             translationPersistenceService.persist(
@@ -262,10 +270,30 @@ public class TranslationService {
     }
 
     /**
-     * 設定裡有列到的語言才自動產生音檔，沒列到的一律回 null（改由使用者點擊產生）。
+     * 決定這次要不要自動產生某個語言的音檔，不產生就回 null（前端顯示成灰色的鍵，
+     * 使用者點了才生）。
+     *
+     * 兩道關卡：
+     *
+     *   ① 總開關：設定 audio.storage.auto-generate 沒列到的語言一律不生
+     *
+     *   ② ★ 中文只在「使用者輸入泰文」時才生 ★
+     *
+     *      泰翻中時中文是「翻譯結果」—— 你貼一段看不懂的泰文進來，
+     *      需要聽中文確認自己有沒有理解對，所以要生。
+     *
+     *      中翻泰時中文是「你自己剛打的字」，唸給你聽沒有任何價值，
+     *      卻要多打一次 OpenAI、每次查詢多等一兩秒。所以不生。
      */
-    private String autoGenerateAudio(String speechText, SpeechLanguageEnum language) {
+    private String autoGenerateAudio(String speechText,
+                                     SpeechLanguageEnum language,
+                                     TranslationDirectionEnum direction) {
         if (!audioStorageProperties.getAutoGenerate().contains(language)) {
+            return null;
+        }
+
+        if (Objects.equals(language, SpeechLanguageEnum.ZH)
+                && !Objects.equals(direction, TranslationDirectionEnum.TH_TO_ZH)) {
             return null;
         }
 
@@ -277,7 +305,8 @@ public class TranslationService {
      * ★ 整句與第一個說法常常是同一段文字（查「我」時 thaiText 就是 ผม），
      *   靠 audio_asset 的唯一鍵自動共用，不會重複合成。
      */
-    private List<TranslationVariantDto> buildVariants(TranslationResult result) {
+    private List<TranslationVariantDto> buildVariants(TranslationResult result,
+                                                      TranslationDirectionEnum direction) {
         if (ObjectUtils.isEmpty(result.variants())) {
             return List.of();
         }
@@ -291,7 +320,8 @@ public class TranslationService {
                     variant.genderUsage(),
                     variant.politeness(),
                     variant.note(),
-                    autoGenerateAudio(variant.thaiText(), SpeechLanguageEnum.TH)));
+                    autoGenerateAudio(variant.thaiText(),
+                            SpeechLanguageEnum.TH, direction)));
         }
 
         return variants;

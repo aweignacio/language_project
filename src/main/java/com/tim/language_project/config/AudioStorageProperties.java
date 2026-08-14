@@ -22,8 +22,10 @@ public class AudioStorageProperties {
 
     /**
      * 查詢完成時要自動產生哪些語言的音檔（涵蓋整句與多重說法）。
-     * 預設只有泰文 —— 目前的使用者是中文母語者，中文音檔對他價值為零，
-     * 為它每次多等一兩秒不划算。日後開放給泰國使用者時改成 TH, ZH 即可。
+     *
+     * 這是總開關。實際上中文還有第二道規則 ——
+     * 只有「使用者輸入泰文」時才會產生，見 TranslationService.autoGenerateAudio。
      */
-    private List<SpeechLanguageEnum> autoGenerate = List.of(SpeechLanguageEnum.TH);
+    private List<SpeechLanguageEnum> autoGenerate =
+            List.of(SpeechLanguageEnum.TH, SpeechLanguageEnum.ZH);
 }
