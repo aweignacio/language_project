@@ -138,6 +138,9 @@ class OpenAiSpeechClientTest {
 
     private static final String THAI_TEXT = "ฉันอยากดื่มเหล้า";
 
+    /** 實際送去 OpenAI 的版本：尾端補了句點，理由見測試八。 */
+    private static final String SPOKEN_TEXT = THAI_TEXT + ".";
+
     /** 真正會連上 OpenAI 的那一層，整支測試靠換掉它來斷網。 */
     @Mock
     private TextToSpeechModel textToSpeechModel;
@@ -171,7 +174,7 @@ class OpenAiSpeechClientTest {
     @DisplayName("語音成功時應寫出 mp3 檔並回傳檔名")
     void shouldWriteAudioFileAndReturnFileName() throws IOException {
         byte[] audioBytes = {1, 2, 3};
-        given(textToSpeechModel.call(THAI_TEXT)).willReturn(audioBytes);
+        given(textToSpeechModel.call(SPOKEN_TEXT)).willReturn(audioBytes);
 
         Optional<String> filePath =
                 openAiSpeechClient.synthesize(THAI_TEXT, SpeechLanguageEnum.TH);
@@ -213,7 +216,7 @@ class OpenAiSpeechClientTest {
     @Test
     @DisplayName("連線失敗時應回傳空結果，且用量記 0")
     void shouldReturnEmptyAndRecordZeroUsageWhenCallFails() {
-        given(textToSpeechModel.call(THAI_TEXT))
+        given(textToSpeechModel.call(SPOKEN_TEXT))
                 .willThrow(new RuntimeException("connection reset"));
 
         Optional<String> filePath =
@@ -240,7 +243,7 @@ class OpenAiSpeechClientTest {
     @Test
     @DisplayName("回傳空音訊時應記錄實際字元數，因為該次呼叫已被收費")
     void shouldRecordCharacterCountWhenAudioIsEmpty() {
-        given(textToSpeechModel.call(THAI_TEXT)).willReturn(new byte[0]);
+        given(textToSpeechModel.call(SPOKEN_TEXT)).willReturn(new byte[0]);
 
         Optional<String> filePath =
                 openAiSpeechClient.synthesize(THAI_TEXT, SpeechLanguageEnum.TH);
@@ -249,7 +252,7 @@ class OpenAiSpeechClientTest {
 
         verify(apiUsageRecorder).record(
                 any(), any(), anyString(), any(),
-                eq((long) THAI_TEXT.length()),
+                eq((long) SPOKEN_TEXT.length()),
                 eq(0L),
                 any(), any(),
                 eq(false));
@@ -277,7 +280,7 @@ class OpenAiSpeechClientTest {
                 textToSpeechModel, apiUsageRecorder,
                 pricingProperties, audioStorageProperties, "gpt-4o-mini-tts");
 
-        given(textToSpeechModel.call(THAI_TEXT)).willReturn(new byte[]{1, 2, 3});
+        given(textToSpeechModel.call(SPOKEN_TEXT)).willReturn(new byte[]{1, 2, 3});
 
         Optional<String> filePath =
                 blockedClient.synthesize(THAI_TEXT, SpeechLanguageEnum.TH);
@@ -287,7 +290,7 @@ class OpenAiSpeechClientTest {
         // 我主張：聲音已經拿到、錢已經付了，字元數要照實記，只是標記失敗
         verify(apiUsageRecorder).record(
                 any(), any(), anyString(), any(),
-                eq((long) THAI_TEXT.length()),
+                eq((long) SPOKEN_TEXT.length()),
                 eq(0L),
                 any(), any(),
                 eq(false));
@@ -302,7 +305,7 @@ class OpenAiSpeechClientTest {
     @Test
     @DisplayName("泰文音檔應存入 th 子資料夾，回傳路徑含資料夾")
     void shouldStoreThaiAudioInThaiFolder() {
-        given(textToSpeechModel.call("เหล้า")).willReturn(new byte[]{1, 2, 3});
+        given(textToSpeechModel.call("เหล้า.")).willReturn(new byte[]{1, 2, 3});
 
         Optional<String> filePath =
                 openAiSpeechClient.synthesize("เหล้า", SpeechLanguageEnum.TH);
@@ -314,12 +317,60 @@ class OpenAiSpeechClientTest {
     }
 
     /*
+     * ═══ 測試八：送去合成的文字尾端要補一個句點 ═══════════════════════
+     *
+     * ★ 這是 2026-08-14 抓到的真實問題。
+     *
+     *   查「我喜歡開車」，逐詞的「開車 → ขับรถ」點下去只唸得出 khàp，
+     *   後面的 rót 不見了。把波形攤開來看，聲音只佔前 125ms，
+     *   後面 300ms 全是靜音 —— tts-1 把最後一個音節吃掉了。
+     *
+     *   實測對照（# 有聲、. 靜音，每格 25ms）：
+     *       送 "ขับรถ"    [..######.............]   一個音節
+     *       送 "ขับรถ."   [..###########.####....]  兩個音節 ✅
+     *
+     *   補一個句點就修好了 —— 有結尾標點時模型才把它當成「講完的一句話」。
+     *
+     * ★ 補的只有「送出去的那份」，資料庫仍然以乾淨的原文當鍵。
+     *   不然快取會查不到，同一個詞每次都重新合成。
+     */
+    @Test
+    @DisplayName("送去合成的文字尾端應補句點，避免最後一個音節被吃掉")
+    void shouldAppendFullStopBeforeSynthesizing() {
+        given(textToSpeechModel.call("ขับรถ.")).willReturn(new byte[]{1, 2, 3});
+
+        Optional<String> filePath =
+                openAiSpeechClient.synthesize("ขับรถ", SpeechLanguageEnum.TH);
+
+        assertThat(filePath).isPresent();
+
+        // ★ 送出去的是補過句點的版本
+        verify(textToSpeechModel).call("ขับรถ.");
+        verify(textToSpeechModel, never()).call("ขับรถ");
+    }
+
+    /*
+     * ═══ 測試九：本來就有結尾標點就不要再補 ═══════════════════════════
+     *
+     * 補成「ขับรถ..」不會壞掉，但模型可能會多停頓一拍，聽起來拖。
+     */
+    @Test
+    @DisplayName("文字本來就有結尾標點時不應重複補")
+    void shouldNotAppendFullStopWhenAlreadyPunctuated() {
+        given(textToSpeechModel.call("สวัสดีครับ.")).willReturn(new byte[]{1, 2, 3});
+
+        openAiSpeechClient.synthesize("สวัสดีครับ.", SpeechLanguageEnum.TH);
+
+        verify(textToSpeechModel).call("สวัสดีครับ.");
+    }
+
+    /*
      * ═══ 測試七：中文要存進 zh/ 子資料夾 ═══════════════════════════════
      */
     @Test
     @DisplayName("中文音檔應存入 zh 子資料夾")
     void shouldStoreChineseAudioInChineseFolder() {
-        given(textToSpeechModel.call("酒")).willReturn(new byte[]{1, 2, 3});
+        given(textToSpeechModel.call("酒.")).willReturn(new byte[]{1, 2, 3});
 
         Optional<String> filePath =
                 openAiSpeechClient.synthesize("酒", SpeechLanguageEnum.ZH);

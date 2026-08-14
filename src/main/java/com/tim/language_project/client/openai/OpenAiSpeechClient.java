@@ -158,6 +158,9 @@ import java.util.UUID;
 @Component
 public class OpenAiSpeechClient implements SpeechClient {
 
+    /** 已經算是「講完一句話」的結尾字元，遇到這些就不再補句點。 */
+    private static final String SENTENCE_ENDINGS = ".!?。！？…～~";
+
     private final TextToSpeechModel textToSpeechModel;
 
     private final ApiUsageRecorder apiUsageRecorder;
@@ -187,10 +190,13 @@ public class OpenAiSpeechClient implements SpeechClient {
             return Optional.empty();
         }
 
+        // ★ 送出去的是補過句點的版本，資料庫仍然以乾淨的原文當鍵。理由見★三。
+        String spokenText = withTrailingStop(speechText);
+
         byte[] audioBytes;
 
         try {
-            audioBytes = textToSpeechModel.call(speechText);
+            audioBytes = textToSpeechModel.call(spokenText);
         } catch (Exception exception) {
             // 沒接通就沒有費用，記 0 只是為了留下「這時候失敗過」的痕跡。
             recordFailure(SpeechFailureReasonEnum.CONNECTION_FAILED, 0L, exception);
@@ -199,7 +205,7 @@ public class OpenAiSpeechClient implements SpeechClient {
 
         if (ObjectUtils.isEmpty(audioBytes)) {
             // 接通也回應了，只是內容是空的 —— 這一次已經被收費。
-            recordFailure(SpeechFailureReasonEnum.UNKNOWN, speechText.length(), null);
+            recordFailure(SpeechFailureReasonEnum.UNKNOWN, spokenText.length(), null);
             return Optional.empty();
         }
 
@@ -214,15 +220,44 @@ public class OpenAiSpeechClient implements SpeechClient {
             Files.write(Paths.get(audioStorageProperties.getDirectory()).resolve(filePath),
                     audioBytes);
 
-            recordUsage(speechText.length(), true);
+            recordUsage(spokenText.length(), true);
 
             return Optional.of(filePath);
         } catch (Exception exception) {
             // 聲音已經拿到了，錢也付了，是我們自己沒存下來。
             recordFailure(SpeechFailureReasonEnum.FILE_SAVE_FAILED,
-                    speechText.length(), exception);
+                    spokenText.length(), exception);
             return Optional.empty();
         }
+    }
+
+    /**
+     * 在尾端補一個句點再送去合成。
+     *
+     * ★ 為什麼要補：tts-1 會把「沒有結尾標點的短句」的最後一個音節吃掉。
+     *
+     *   2026-08-14 實測「ขับรถ」（khàp rót，兩個音節）：
+     *
+     *       送 "ขับรถ"    → 0.50 秒，聲音只佔前 125ms，後面全是靜音，
+     *                       實際只唸得出 khàp
+     *       送 "ขับรถ."   → 0.53 秒，兩段聲音，khàp rót 都在
+     *
+     *   有結尾標點時模型才把它當成「一句講完的話」。尾端加空白沒有用，
+     *   那會被吃掉。
+     *
+     * ★ 補的只有「送出去的那一份」。資料庫與快取仍然以乾淨的原文當鍵 ——
+     *   把句點也存進去的話，下次拿原文查就會查不到，同一個詞每次都重新合成。
+     *
+     * ★ 用量記的是「補過之後的長度」，因為 OpenAI 是按實際送出的字元收費。
+     */
+    private String withTrailingStop(String speechText) {
+        String trimmed = speechText.strip();
+
+        if (SENTENCE_ENDINGS.indexOf(trimmed.charAt(trimmed.length() - 1)) >= 0) {
+            return trimmed;
+        }
+
+        return trimmed + ".";
     }
 
     /**
