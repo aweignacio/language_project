@@ -69,3 +69,6 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Playwright MCP 的除錯暫存檔
+.playwright-mcp/
