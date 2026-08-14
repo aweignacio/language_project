@@ -1,0 +1,26 @@
+- main [ref=e4]:
+  - generic: ไทย
+  - generic [ref=e5]:
+    - paragraph [ref=e6]: THAI · 泰語
+    - heading "中泰翻譯查詢" [level=1] [ref=e7]
+    - paragraph [ref=e8]: 輸入中文或泰文，查對照、羅馬拼音與各種說法
+  - group "說話者性別" [ref=e11]:
+    - button "男生" [pressed] [ref=e12] [cursor=pointer]
+    - button "女生" [ref=e13] [cursor=pointer]
+  - generic [ref=e14]:
+    - textbox "要翻譯的中文或泰文" [ref=e16]:
+      - /placeholder: 請輸入中文或泰文
+    - button "查詢" [ref=e17] [cursor=pointer]
+  - generic [ref=e18]:
+    - paragraph [ref=e19]: สวัสดี
+    - paragraph [ref=e20]: 在上面打一句中文，或從下面挑一句
+    - list [ref=e21]:
+      - listitem [ref=e22]:
+        - button "可以便宜一點嗎" [ref=e23] [cursor=pointer]
+      - listitem [ref=e24]:
+        - button "這個很好吃" [ref=e25] [cursor=pointer]
+      - listitem [ref=e26]:
+        - button "我要結帳" [ref=e27] [cursor=pointer]
+    - button "換一批" [ref=e28] [cursor=pointer]:
+      - generic [ref=e29]: ↻
+      - text: 換一批

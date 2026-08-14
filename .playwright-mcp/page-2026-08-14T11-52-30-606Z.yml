@@ -1,0 +1,52 @@
+- main [ref=e4]:
+  - generic: ไทย
+  - generic [ref=e5]:
+    - paragraph [ref=e6]: THAI · 泰語
+    - heading "中泰翻譯查詢" [level=1] [ref=e7]
+    - paragraph [ref=e8]: 輸入中文或泰文，查對照、羅馬拼音與各種說法
+  - group "說話者性別" [ref=e11]:
+    - button "男生" [pressed] [ref=e12] [cursor=pointer]
+    - button "女生" [ref=e13] [cursor=pointer]
+  - generic [ref=e14]:
+    - textbox "要翻譯的中文或泰文" [ref=e16]:
+      - /placeholder: 請輸入中文或泰文
+      - text: 我喜歡開車
+    - button "查詢" [ref=e17] [cursor=pointer]
+  - generic [ref=e30]:
+    - generic [ref=e31]:
+      - generic [ref=e32]: 「我喜歡開車」
+      - generic [ref=e33]: 讀取自快取
+    - paragraph [ref=e34]: ผมชอบขับรถ
+    - paragraph [ref=e35]: phǒm chɔ̂ɔp khàp rót
+    - button "播放發音" [ref=e36] [cursor=pointer]
+    - table [ref=e40]:
+      - caption [ref=e41]: 逐詞對照
+      - rowgroup [ref=e42]:
+        - row [ref=e43]:
+          - columnheader "#" [ref=e44]
+          - columnheader "中文" [ref=e45]
+          - columnheader "泰文" [ref=e46]
+          - columnheader "羅馬拼音" [ref=e47]
+          - columnheader "發音" [ref=e48]
+      - rowgroup [ref=e49]:
+        - row [ref=e50]:
+          - cell "1" [ref=e51]
+          - cell "我" [ref=e52]
+          - cell "ผม" [ref=e53]
+          - cell "phǒm" [ref=e54]
+          - cell [ref=e55]:
+            - button "播放 ผม" [ref=e56] [cursor=pointer]: ▶
+        - row [ref=e57]:
+          - cell "2" [ref=e58]
+          - cell "喜歡" [ref=e59]
+          - cell "ชอบ" [ref=e60]
+          - cell "chɔ̂ɔp" [ref=e61]
+          - cell [ref=e62]:
+            - button "播放 ชอบ" [ref=e63] [cursor=pointer]: ▶
+        - row [ref=e64]:
+          - cell "3" [ref=e65]
+          - cell "開車" [ref=e66]
+          - cell "ขับรถ" [ref=e67]
+          - cell "khàp rót" [ref=e68]
+          - cell [ref=e69]:
+            - button "播放 ขับรถ" [active] [ref=e70] [cursor=pointer]: ▶

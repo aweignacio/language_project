@@ -346,8 +346,8 @@ public class TranslationService {
     }
 
     private TranslationResponseDto buildCachedResponse(TranslationQueryDto cached) {
-        List<TranslationSegmentDto> segments =
-                translationSegmentRepository.findByQueryIdOrderBySeqNo(cached.id());
+        List<TranslationSegmentDto> segments = withSegmentAudio(
+                translationSegmentRepository.findByQueryIdOrderBySeqNo(cached.id()));
 
         // 快取命中代表「這次不花錢」，所以只查現成的音檔，絕不合成。
         String thaiAudioUrl = audioAssetService
@@ -360,6 +360,37 @@ public class TranslationService {
                 cached.chineseText(), cached.thaiText(), cached.romanization(),
                 thaiAudioUrl, chineseAudioUrl, true,
                 segments, cachedVariants(cached));
+    }
+
+    /**
+     * 幫快取撈出來的逐詞資料補上音檔網址。
+     *
+     * ★ 為什麼要補：音檔不在 translation_segment 那張表裡（全站的音檔由
+     *   audio_asset 持有），JPQL 的建構子表達式又沒辦法跨表把它們一起撈出來，
+     *   所以 findByQueryIdOrderBySeqNo 的兩個音檔欄位一律回 null。
+     *
+     * ★ 漏掉這一步的症狀很不明顯：畫面照常、點下去也會有聲音，
+     *   只是「該亮的播放鍵一直是灰的」，看起來像音檔從來沒生出來過。
+     *   2026-08-14 就是這樣被抓到的。
+     *
+     * ★ 用 findExistingAudioUrl（只查不生）—— 快取命中的意義就是「這次不花錢」。
+     */
+    private List<TranslationSegmentDto> withSegmentAudio(List<TranslationSegmentDto> segments) {
+        List<TranslationSegmentDto> filled = new ArrayList<>();
+
+        for (TranslationSegmentDto segment : segments) {
+            filled.add(new TranslationSegmentDto(
+                    segment.seqNo(),
+                    segment.chineseText(),
+                    segment.thaiText(),
+                    segment.romanization(),
+                    audioAssetService.findExistingAudioUrl(
+                            segment.thaiText(), SpeechLanguageEnum.TH).orElse(null),
+                    audioAssetService.findExistingAudioUrl(
+                            segment.chineseText(), SpeechLanguageEnum.ZH).orElse(null)));
+        }
+
+        return filled;
     }
 
     /**

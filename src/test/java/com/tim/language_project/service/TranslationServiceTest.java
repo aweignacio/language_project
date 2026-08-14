@@ -157,6 +157,55 @@ class TranslationServiceTest {
     }
 
     /*
+     * ═══ 測試一之二：快取命中時，逐詞的音檔網址也要帶出來 ═══════════════
+     *
+     * ★ 這是 2026-08-14 抓到的 bug。
+     *
+     *   逐詞的音檔不在 translation_segment 那張表裡（音檔由 audio_asset 持有），
+     *   所以那個 JPQL 查詢的兩個音檔欄位一律回 null，本來就打算「由 Service 補上」。
+     *   但補的那段當初漏寫了，導致快取命中時每一顆逐詞播放鍵都是灰的 ——
+     *   即使那個詞的音檔明明已經躺在 audio_asset 裡。
+     *
+     *   症狀很不明顯：畫面照常、點下去也會有聲音（它會去合成，但後端查得到現成的
+     *   所以不花錢），只是「該亮的沒亮」，看起來像是音檔一直沒生出來。
+     */
+    @Test
+    @DisplayName("快取命中時逐詞的音檔網址也要一起帶出來")
+    void shouldFillSegmentAudioUrlsOnCacheHit() {
+        when(translationQueryRepository.findByKey(
+                "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo")));
+
+        // ★ Repository 回來的逐詞資料，音檔欄位本來就是 null
+        when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
+                .thenReturn(List.of(new TranslationSegmentDto(
+                        1, "我", "ผม", "pǒm", null, null)));
+
+        when(vocabularyRepository.findByChineseText("我想喝酒")).thenReturn(List.of());
+
+        // 而 audio_asset 裡明明就有「ผม」的音檔
+        when(audioAssetService.findExistingAudioUrl("ผม", SpeechLanguageEnum.TH))
+                .thenReturn(Optional.of("/audio/th/e224acae.mp3"));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.empty());
+        when(audioAssetService.findExistingAudioUrl("ผม", SpeechLanguageEnum.TH))
+                .thenReturn(Optional.of("/audio/th/e224acae.mp3"));
+
+        TranslationResponseDto response =
+                translationService.translate("我想喝酒", SpeakerGenderEnum.MALE);
+
+        // ★ 重點：那顆播放鍵要是亮的
+        assertThat(response.segments()).hasSize(1);
+        assertThat(response.segments().get(0).thaiAudioUrl())
+                .isEqualTo("/audio/th/e224acae.mp3");
+
+        // 而且是「只查不生」—— 快取命中不可以花錢
+        verify(audioAssetService, never()).resolveAudioUrl(anyString(), any());
+    }
+
+    /*
      * ═══ 測試二：前後空白要先去掉再查快取 ═══════════════════════════════
      *
      * 不去掉的話，「我想喝酒」和「 我想喝酒 」會被當成兩句不同的話，
