@@ -16,14 +16,21 @@
  *
  * ── 第 1 步｜Translation 元件呼叫 translate ────────────────────────────────
  *
- *        translationService.translate('我想喝酒')
+ *        translationService.translate('我想喝酒', 'MALE')
+ *                                                  ↑ 使用者選的性別
  *
  * ── 第 2 步｜HttpClient 把它變成一個真正的 HTTP 請求 ───────────────────────
  *
  *        POST /api/v1/translations
  *        Content-Type: application/json
  *
- *        { "sourceText": "我想喝酒" }
+ *        { "sourceText": "我想喝酒", "gender": "MALE" }
+ *
+ *    ★ gender 每次都要送。泰文的自稱與句尾助詞分性別
+ *      （男 ผม/ครับ、女 ฉัน/ค่ะ），同一句中文的男版與女版是兩句不同的泰文。
+ *      輸入泰文時後端會忽略它 —— 泰翻中沒有性別概念。
+ *
+ *    ★ 「方向」不用送。你打中文還是泰文，後端自己看得出來。
  *
  *    ★ 網址寫的是相對路徑 /api/...，不是 http://localhost:8080/...
  *
@@ -49,11 +56,16 @@
  *
  *        {
  *          "sourceText": "我想喝酒",
- *          "thaiText": "ฉันอยากดื่มเหล้า",
- *          "romanization": "chan yaak duem lao",
- *          "audioUrl": "/audio/a3f9c2b81e47.mp3",
+ *          "direction": "ZH_TO_TH",
+ *          "gender": "MALE",
+ *          "chineseText": "我想喝酒",
+ *          "thaiText": "ผมอยากดื่มเหล้าครับ",
+ *          "romanization": "pǒm yàak dùuem lâo khráp",
+ *          "thaiAudioUrl": "/audio/th/a3f9c2b81e47.mp3",
+ *          "chineseAudioUrl": null,
  *          "fromCache": true,
- *          "segments": [ { "seqNo": 1, "chineseText": "我", ... }, ... ]
+ *          "segments": [ { "seqNo": 1, "chineseText": "我", ... }, ... ],
+ *          "variants": []
  *        }
  *
  *              ↓ post<TranslationResponse> 的角括號就是在說「這包是這個形狀」
@@ -68,12 +80,35 @@
  *    這個檔案「完全不處理錯誤」，這是刻意的。
  *    HttpClient 會把非 2xx 的回應轉成錯誤往下丟，由元件的 subscribe
  *    第二個參數（error）接住，因為只有元件知道該怎麼顯示給使用者看。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  另一支 API：合成音檔（synthesize）
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  逐詞對照的播放鍵是灰色時（thaiAudioUrl 為 null），點下去就是打這支：
+ *
+ *        POST /api/v1/audio
+ *        { "speechText": "ดื่ม", "language": "TH" }
+ *
+ *        → { "audioUrl": "/audio/th/d4e5f6.mp3" }
+ *
+ *  ★ 後端會先查資料庫，沒有才真的合成。所以同一個詞點第二次不會再花錢，
+ *    而且那個詞之後出現在「任何句子裡」都直接是亮的。
+ *
+ *  ★ 為什麼不在查詢時就把逐詞音檔全做好？
+ *    一句話拆成四五個詞，每個都生要多打四五次 OpenAI、多等好幾秒，
+ *    而那些詞你未必想聽。改成「想聽哪個就點哪個」。
  */
 
 import { Service, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { TranslationResponse } from '../models/translation';
+import {
+  AudioResponse,
+  SpeakerGender,
+  SpeechLanguage,
+  TranslationResponse,
+} from '../models/translation';
 
 /**
  * 包裝翻譯 API 的呼叫。
@@ -87,9 +122,20 @@ export class TranslationService {
 
   /**
    * 送出一次翻譯查詢。
-   * @param sourceText 使用者輸入的中文，例如「我想喝酒」
+   * @param sourceText 使用者輸入的內容，可以是中文也可以是泰文（後端自己判斷方向）
+   * @param gender 使用者選的性別，影響泰文造句。輸入泰文時後端會忽略它。
    */
-  translate(sourceText: string): Observable<TranslationResponse> {
-    return this.http.post<TranslationResponse>('/api/v1/translations', { sourceText });
+  translate(sourceText: string, gender: SpeakerGender): Observable<TranslationResponse> {
+    return this.http.post<TranslationResponse>(
+      '/api/v1/translations', { sourceText, gender });
+  }
+
+  /**
+   * 產生一段文字的音檔。逐詞的播放鍵是灰色時，點下去就是打這支。
+   * 後端會先查現成的，沒有才真的合成 —— 所以同一個詞點第二次不會再花錢。
+   */
+  synthesize(speechText: string, language: SpeechLanguage): Observable<AudioResponse> {
+    return this.http.post<AudioResponse>(
+      '/api/v1/audio', { speechText, language });
   }
 }

@@ -74,17 +74,24 @@
  *
  *        {
  *          sourceText: '我想喝酒',
- *          thaiText: 'ฉันอยากดื่มเหล้า',
- *          romanization: 'chan yaak duem lao',
- *          audioUrl: '/audio/a3f9c2b81e47.mp3',
+ *          direction: 'ZH_TO_TH',
+ *          gender: 'MALE',
+ *          chineseText: '我想喝酒',
+ *          thaiText: 'ผมอยากดื่มเหล้าครับ',
+ *          romanization: 'pǒm yàak dùuem lâo khráp',
+ *          thaiAudioUrl: '/audio/th/a3f9c2b81e47.mp3',
+ *          chineseAudioUrl: null,
  *          fromCache: true,
  *          segments: [
- *            { seqNo: 1, chineseText: '我',  thaiText: 'ฉัน',    romanization: 'chan' },
- *            { seqNo: 2, chineseText: '想',  thaiText: 'อยาก',   romanization: 'yaak' },
- *            { seqNo: 3, chineseText: '喝',  thaiText: 'ดื่ม',    romanization: 'duem' },
- *            { seqNo: 4, chineseText: '酒',  thaiText: 'เหล้า',   romanization: 'lao'  }
- *          ]
+ *            { seqNo: 1, chineseText: '我', thaiText: 'ผม', romanization: 'pǒm',
+ *              thaiAudioUrl: null, chineseAudioUrl: null },
+ *            ...
+ *          ],
+ *          variants: []
  *        }
+ *
+ *    ★ 逐詞的 thaiAudioUrl 大多是 null —— 那些音檔是「點了才生」的，
+ *      畫面上要顯示成灰色的播放鍵（見下面第 7 步）。
  *
  *        result.set(那包東西)
  *              ↓
@@ -117,7 +124,43 @@
  *            硬讀 message 會拿到 undefined，畫面就會出現一塊空白的紅框。
  *            所以要自己補一句話。
  *
- * ── 第 6 步｜按下播放鍵 ───────────────────────────────────────────────────
+ * ── 第 6 步｜查單一個詞時，多出一區「各種說法」 ───────────────────────────
+ *
+ *    查「我」的話 variants 會有內容，畫面上多出這一區：
+ *
+ *        ผม    pǒm    【男性】【正式】  男生自稱          ★ 適合你
+ *        กู     guu    【不分性別】【粗俗】 很不客氣（紅色警示）
+ *        ฉัน    chǎn   【女性】【正式】  女生自稱
+ *
+ *    排序由 sortedVariants 決定：符合你性別的排前面，再依禮貌程度。
+ *
+ *    ★ 異性的說法「刻意不隱藏」。你是男生沒錯，但泰國女生跟你講話時
+ *      就是會說 ฉัน，藏起來的話你會聽不懂對方。
+ *
+ * ── 第 7 步｜逐詞與說法的播放鍵：灰色的點下去才生 ─────────────────────────
+ *
+ *    thaiAudioUrl 是 null → 鍵是灰的 → 點下去打 POST /api/v1/audio
+ *                                     → 轉圈（synthesizing）
+ *                                     → 拿到網址後寫回那一列並播放
+ *                                     → 之後那顆鍵就是亮的，直接播
+ *
+ *    ★ 為什麼不在查詢時就全做好？一句話拆四五個詞，每個都生要多打
+ *      四五次 OpenAI、多等好幾秒，而那些詞你未必想聽。
+ *
+ * ── 第 8 步｜切換性別 ─────────────────────────────────────────────────────
+ *
+ *    changeGender('FEMALE')
+ *      → 存進 localStorage（下次開瀏覽器記得）
+ *      → 畫面上已經有結果的話，自動重查一次
+ *
+ *    ★ 為什麼要重查？因為整句翻譯的泰文會跟著性別改變：
+ *          男：ผมอยากดื่มเหล้าครับ
+ *          女：ฉันอยากดื่มเหล้าค่ะ
+ *      那是兩句不同的泰文，不是同一句換個標籤。
+ *
+ *    ★ 查單一個詞時後端會命中快取（單字的說法不分性別），所以切換不花錢。
+ *
+ * ── 第 9 步｜按下播放鍵 ───────────────────────────────────────────────────
  *
  *    ★ 為什麼不是單純一個 <audio controls> 就好？
  *
@@ -143,7 +186,15 @@
 
 import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
-import { ErrorResponse, TranslationResponse } from '../models/translation';
+import {
+  ErrorResponse,
+  Politeness,
+  SpeakerGender,
+  SpeechLanguage,
+  TranslationResponse,
+  TranslationSegment,
+  TranslationVariant,
+} from '../models/translation';
 import { TranslationService } from '../services/translation-service';
 
 /**
@@ -154,6 +205,12 @@ const AUDIO_GAIN = 2;
 
 /** 後端在「AI 判定翻不出來」時回的錯誤碼，要當成正常結果顯示。 */
 const CODE_UNTRANSLATABLE = 'INPUT_UNSUPPORTED_CONTENT';
+
+/** 記住上次選的性別用的 localStorage 鍵。 */
+const GENDER_STORAGE_KEY = 'gender';
+
+/** 說法的排序用：越前面越正式。 */
+const POLITENESS_ORDER: Politeness[] = ['FORMAL', 'NEUTRAL', 'CASUAL', 'RUDE'];
 
 /**
  * 範例句的題庫。空畫面每次從這裡隨機抽 EXAMPLE_COUNT 句出來顯示，
@@ -236,6 +293,20 @@ export class Translation {
    */
   protected readonly examples = signal(pickExamples());
 
+  /**
+   * 使用者選的性別。存在 localStorage，重開瀏覽器記得上次的選擇 ——
+   * 這個值幾乎不會變（你是男是女不會每天換），每次都要重選很煩。
+   */
+  protected readonly gender = signal<SpeakerGender>(
+    (localStorage.getItem(GENDER_STORAGE_KEY) as SpeakerGender | null) ?? 'MALE');
+
+  /**
+   * 正在合成中的文字，用來把那一顆播放鍵顯示成載入中。
+   * 做成訊號、每次都換一個新的 Set —— 直接改同一個 Set 的內容，
+   * 訊號不會發現自己變了，畫面就不會重畫（zoneless 模式，見檔頭第 1 步）。
+   */
+  protected readonly synthesizing = signal<ReadonlySet<string>>(new Set());
+
   /** Web Audio 的放大鏈，第一次按播放時才建立，之後重複使用。 */
   private audioContext?: AudioContext;
 
@@ -268,7 +339,7 @@ export class Translation {
     this.errorMessage.set(null);
     this.noticeMessage.set(null);
 
-    this.translationService.translate(this.sourceText()).subscribe({
+    this.translationService.translate(this.sourceText(), this.gender()).subscribe({
       next: (response) => {
         this.result.set(response);
         this.loading.set(false);
@@ -280,9 +351,128 @@ export class Translation {
     });
   }
 
+  /**
+   * 切換性別。畫面上已經有結果時要重新查一次 ——
+   * 因為整句翻譯的泰文會跟著性別改變（ผม vs ฉัน、ครับ vs ค่ะ）。
+   *
+   * ★ 查單一個詞時後端會命中快取（單字的說法不分性別），所以不會花錢；
+   *   查句子時才會真的重翻一次。
+   */
+  protected changeGender(gender: SpeakerGender): void {
+    if (this.gender() === gender) {
+      return;
+    }
+
+    this.gender.set(gender);
+    localStorage.setItem(GENDER_STORAGE_KEY, gender);
+
+    if (this.result()) {
+      this.search();
+    }
+  }
+
+  /**
+   * 說法的排序規則：
+   *   ① 符合使用者性別的排前面（BOTH 也算符合）
+   *   ② 再依禮貌程度，正式的在前
+   *
+   * ★ 刻意「不過濾」異性的說法。你是男生沒錯，但泰國女生跟你講話時
+   *   就是會說 ฉัน，藏起來的話你會聽不懂對方。
+   */
+  protected sortedVariants(variants: TranslationVariant[]): TranslationVariant[] {
+    return [...variants].sort((left, right) => {
+      const leftMatches = this.matchesGender(left) ? 0 : 1;
+      const rightMatches = this.matchesGender(right) ? 0 : 1;
+
+      if (leftMatches !== rightMatches) {
+        return leftMatches - rightMatches;
+      }
+
+      return POLITENESS_ORDER.indexOf(left.politeness)
+        - POLITENESS_ORDER.indexOf(right.politeness);
+    });
+  }
+
+  /** 這個說法適不適合目前選的性別使用。BOTH 是男女通用，兩邊都算符合。 */
+  protected matchesGender(variant: TranslationVariant): boolean {
+    return variant.genderUsage === this.gender() || variant.genderUsage === 'BOTH';
+  }
+
+  /** 這段文字正在合成中嗎（用來把播放鍵顯示成載入中）。 */
+  protected isSynthesizing(speechText: string): boolean {
+    return this.synthesizing().has(speechText);
+  }
+
   /** 播放整句泰文，音量放大 AUDIO_GAIN 倍。 */
   protected play(): void {
-    const audioUrl = this.result()?.audioUrl;
+    this.playAudio(this.result()?.thaiAudioUrl);
+  }
+
+  /**
+   * 點擊逐詞或說法的播放鍵。
+   *
+   *   已經有音檔  → 直接播
+   *   還沒有音檔  → 先跟後端要（POST /api/v1/audio），拿到後播放並記在畫面上，
+   *                 這樣同一個詞再點就是亮的、直接播，不會再打一次後端
+   *
+   * ★ 後端那支 API 會先查資料庫，沒有才真的合成。所以就算這裡記漏了，
+   *   也不會重複付錢 —— 只是會多打一次沒必要的請求。
+   */
+  protected playOrSynthesize(target: TranslationSegment | TranslationVariant,
+                             language: SpeechLanguage): void {
+    const existingUrl = language === 'TH'
+      ? target.thaiAudioUrl
+      : (target as TranslationSegment).chineseAudioUrl;
+
+    if (existingUrl) {
+      this.playAudio(existingUrl);
+      return;
+    }
+
+    const speechText = language === 'TH'
+      ? target.thaiText
+      : (target as TranslationSegment).chineseText;
+
+    if (this.isSynthesizing(speechText)) {
+      return;
+    }
+
+    this.markSynthesizing(speechText, true);
+
+    this.translationService.synthesize(speechText, language).subscribe({
+      next: (response) => {
+        this.markSynthesizing(speechText, false);
+
+        if (language === 'TH') {
+          target.thaiAudioUrl = response.audioUrl;
+        } else {
+          (target as TranslationSegment).chineseAudioUrl = response.audioUrl;
+        }
+
+        this.playAudio(response.audioUrl);
+      },
+      error: () => {
+        // 合成失敗就讓那顆鍵回到灰色，使用者可以再點一次重試。
+        this.markSynthesizing(speechText, false);
+      },
+    });
+  }
+
+  /** 把某段文字標記成「合成中」或「不在合成中」，每次都換一個新的 Set。 */
+  private markSynthesizing(speechText: string, running: boolean): void {
+    const next = new Set(this.synthesizing());
+
+    if (running) {
+      next.add(speechText);
+    } else {
+      next.delete(speechText);
+    }
+
+    this.synthesizing.set(next);
+  }
+
+  /** 所有播放都走這裡，共用同一個 <audio> 與同一條放大鏈。 */
+  private playAudio(audioUrl: string | null | undefined): void {
     const element = this.audioPlayer()?.nativeElement;
 
     if (!audioUrl || !element) {
@@ -291,7 +481,7 @@ export class Translation {
 
     this.connectAmplifier(element);
 
-    // 換了一句才重新載入，同一句重播不必再抓一次檔案。
+    // 換了一段才重新載入，同一段重播不必再抓一次檔案。
     if (!element.src.endsWith(audioUrl)) {
       element.src = audioUrl;
     }

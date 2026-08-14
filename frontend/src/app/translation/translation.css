@@ -565,6 +565,202 @@
   color: var(--ivory-dim);
 }
 
+/* ─── 性別切換 ─────────────────────────────────────────────────────────── */
+
+.gender {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-bottom: 1.1rem;
+}
+
+.gender__option {
+  padding: 0.34rem 1.1rem;
+  font-family: var(--font-serif);
+  font-size: 0.82rem;
+  letter-spacing: 0.1em;
+  color: var(--ivory-faint);
+  background: transparent;
+  border: 1px solid rgba(230, 198, 126, 0.18);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.3s, background 0.3s, border-color 0.3s;
+}
+
+.gender__option:hover {
+  color: var(--gold-400);
+  border-color: rgba(230, 198, 126, 0.4);
+}
+
+/* 選中的那顆要一眼看得出來 —— 它決定了整頁的泰文長什麼樣 */
+.gender__option--active {
+  color: var(--ink-900);
+  background: var(--gold-400);
+  border-color: var(--gold-400);
+}
+
+/* ─── 逐詞與說法的播放鍵 ───────────────────────────────────────────────── */
+
+/*
+ * 三種狀態：
+ *   預設（灰）  音檔還沒產生，點下去才會跟後端要
+ *   ready（金） 音檔已經有了，點下去直接播
+ *   loading     正在合成，閃爍並擋住重複點擊
+ */
+.wordplay {
+  display: inline-grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  font-size: 0.62rem;
+  line-height: 1;
+  color: var(--ivory-faint);
+  background: transparent;
+  border: 1px solid rgba(241, 233, 218, 0.16);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color 0.3s, background 0.3s, border-color 0.3s;
+}
+
+.wordplay:hover {
+  color: var(--gold-400);
+  border-color: rgba(230, 198, 126, 0.45);
+}
+
+/* 已經有音檔的是實色的，跟「還沒產生」分得開 */
+.wordplay--ready {
+  color: var(--gold-400);
+  background: rgba(230, 198, 126, 0.12);
+  border-color: rgba(230, 198, 126, 0.42);
+}
+
+.wordplay--loading {
+  color: var(--gold-400);
+  border-color: rgba(230, 198, 126, 0.42);
+  cursor: progress;
+  animation: wordplay-pulse 1s ease-in-out infinite;
+}
+
+@keyframes wordplay-pulse {
+  50% { opacity: 0.35; }
+}
+
+.segments__play {
+  width: 3rem;
+  text-align: center;
+}
+
+/* ─── 各種說法 ─────────────────────────────────────────────────────────── */
+
+.variants {
+  margin-top: 2.2rem;
+}
+
+.variants__caption {
+  margin: 0 0 0.9rem;
+  font-family: var(--font-serif);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  color: var(--gold-500);
+}
+
+.variants__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.variants__item {
+  padding: 0.95rem 0 0.95rem 0.9rem;
+  border-bottom: 1px solid rgba(230, 198, 126, 0.08);
+  /* 左側預留一條線的位置，符合性別的那幾筆才會亮起來 */
+  border-left: 2px solid transparent;
+}
+
+/* 符合你性別的說法，左邊多一條金線 —— 排序已經把它們排前面了，這是再加強一次 */
+.variants__item--match {
+  border-left-color: rgba(230, 198, 126, 0.5);
+}
+
+.variants__main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.variants__thai {
+  font-family: var(--font-thai);
+  font-size: 1.5rem;
+  color: var(--gold-400);
+}
+
+.variants__romanization {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--ivory-dim);
+}
+
+.variants__tags {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.variants__note {
+  margin: 0.5rem 0 0;
+  font-size: 0.84rem;
+  line-height: 1.7;
+  color: var(--ivory-dim);
+}
+
+.tag {
+  padding: 0.18rem 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  border: 1px solid;
+  border-radius: 999px;
+}
+
+.tag--gender {
+  color: var(--ivory-dim);
+  border-color: rgba(241, 233, 218, 0.2);
+}
+
+.tag--politeness {
+  color: var(--jade);
+  border-color: rgba(111, 184, 160, 0.35);
+}
+
+/*
+ * ★ 粗俗的說法用警示色。
+ *   用錯場合的後果是「冒犯到人」，不是「講得不夠好」——
+ *   使用者需要在點下播放鍵之前就看見這個警告。
+ */
+.tag--rude {
+  color: var(--danger);
+  background: rgba(224, 121, 106, 0.1);
+  border-color: rgba(224, 121, 106, 0.45);
+}
+
+.tag--suggested {
+  color: var(--ink-900);
+  background: var(--gold-400);
+  border-color: var(--gold-400);
+}
+
+/* 泰翻中時中文那面是翻譯結果，字級介於泰文與拼音之間 */
+.result__chinese {
+  margin: 0.9rem 0 0;
+  font-size: 1.35rem;
+  line-height: 1.6;
+  color: var(--ivory);
+}
+
 /* ─── 窄螢幕調整 ───────────────────────────────────────────────────────── */
 
 @media (max-width: 560px) {
@@ -575,8 +771,8 @@
   }
 
   /*
-   * 四欄表格在手機上會被擠爛，改成一列一組：
-   * 左邊一個序號，右邊由上而下疊中文、泰文、拼音。
+   * 五欄表格在手機上會被擠爛，改成一列一組：
+   * 左邊一個序號，中間由上而下疊中文、泰文、拼音，右邊一顆播放鍵。
    * 標題列這時沒有意義，用絕對定位藏起來（但保留給螢幕閱讀器）。
    */
   .segments thead {
@@ -589,7 +785,8 @@
 
   .segments tbody tr {
     display: grid;
-    grid-template-columns: 2rem 1fr;
+    grid-template-columns: 2rem 1fr 2.4rem;
+    align-items: start;
     padding: 0.9rem 0;
     border-bottom: 1px solid rgba(230, 198, 126, 0.08);
   }
@@ -599,8 +796,15 @@
     border: 0;
   }
 
-  /* 序號跨越右側那三行，靠上對齊 */
+  /* 序號跨越中間那三行，靠上對齊 */
   .segments__seq {
+    grid-row: 1 / span 3;
+    width: auto;
+  }
+
+  /* 播放鍵擺在最右邊，同樣跨越三行 */
+  .segments__play {
+    grid-column: 3;
     grid-row: 1 / span 3;
     width: auto;
   }
