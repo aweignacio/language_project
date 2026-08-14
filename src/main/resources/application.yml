@@ -28,7 +28,19 @@ spring:
       audio:
         speech:
           # 語音設定採用扁平寫法。舊版的 audio.speech.options.* 巢狀形式已標記為棄用。
-          model: gpt-4o-mini-tts
+          #
+          # 為什麼不用比較新的 gpt-4o-mini-tts：2026-08-14 發現它每一次呼叫都是
+          # 重新合成一個講話的人，voice 只決定音色基底。結果是同一個音檔內聲線一致，
+          # 但「5」和「晚餐」兩次查詢聽起來像兩個不同的人，句子越短飄得越明顯。
+          #
+          # 它的賣點是 instructions 參數（可指定語氣），但 Spring AI 2.0.0 的
+          # OpenAiAudioSpeechOptions 只有 input / voice / response-format / speed 四個欄位，
+          # 沒有開放 instructions，也沒有 seed。等於付了不穩定的代價卻拿不到好處。
+          #
+          # tts-1 是非生成式的舊款，同一個 voice 跨句子穩定，適合當發音範本。
+          # 附帶好處：tts-1 按「字元」計價，跟 OpenAiSpeechClient 用 thaiText.length()
+          # 記帳的方式完全一致，語音費用從粗估變成精確值。
+          model: tts-1
           voice: alloy
           response-format: mp3
 
@@ -66,10 +78,13 @@ ai:
       translation-input-price: 0.00000500
       translation-output-price: 0.00003000
 
-      # gpt-4o-mini-tts：文字輸入 $0.60 / 1M token、語音輸出 $12.00 / 1M token。
-      # ⚠ 我們的記帳是「按字元」算的，但 OpenAI 實際是「按 token」收費，
-      #   而且主要成本在語音輸出那一段，我們現在量不到。
-      #   所以語音的費用是粗估值，不是精確值。詳見計畫文件的已知偏離。
+      # tts-1：$15.00 / 1M characters（查證日期 2026-08-14，來源同上）。
+      # 這個模型本來就按字元計價，跟 OpenAiSpeechClient 用 thaiText.length() 記帳
+      # 的方式完全一致，所以語音費用是精確值，不再是粗估。
+      #
+      # （2026-08-14 之前用的是 gpt-4o-mini-tts，那款按 token 收費、主要成本在
+      #   語音輸出那段，我們量不到，當時的語音帳只能算粗估。換模型後這個問題消失。
+      #   單價數字碰巧一樣是 0.000015，是巧合，不是沒改到。）
       speech-price: 0.00001500
 
 audio:

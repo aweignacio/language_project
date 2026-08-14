@@ -127,7 +127,7 @@
  *      要真的放大，得走瀏覽器的 Web Audio API：
  *
  *          <audio> 元素 → MediaElementSource（把聲音接出來）
- *                       → GainNode（音量放大 3 倍）
+ *                       → GainNode（音量放大 AUDIO_GAIN 倍，目前是 2）
  *                       → destination（送到喇叭）
  *
  *      接好之後，聲音就不再直接從 <audio> 流向喇叭，而是繞過放大器。
@@ -146,8 +146,11 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ErrorResponse, TranslationResponse } from '../models/translation';
 import { TranslationService } from '../services/translation-service';
 
-/** 音量放大倍率。1 是原音量，OpenAI 的泰文音檔偏小，放大到 3 倍才聽得清楚。 */
-const AUDIO_GAIN = 3;
+/**
+ * 音量放大倍率。1 是原音量，OpenAI 的泰文音檔偏小，需要放大才聽得清楚。
+ * 原本設 3 倍，2026-08-14 實測音量峰值會削頂產生輕微爆音，調降為 2 倍。
+ */
+const AUDIO_GAIN = 2;
 
 /** 後端在「AI 判定翻不出來」時回的錯誤碼，要當成正常結果顯示。 */
 const CODE_UNTRANSLATABLE = 'INPUT_UNSUPPORTED_CONTENT';
