@@ -68,7 +68,7 @@ class VocabularyControllerTest {
     @DisplayName("單字列表應回傳分頁內容")
     void shouldReturnVocabularyPage() throws Exception {
         Page<VocabularyDto> page = new PageImpl<>(
-                List.of(new VocabularyDto(7L, "酒", "เหล้า", "lâo")),
+                List.of(new VocabularyDto(7L, "酒", "เหล้า", "lâo", null, null, null)),
                 PageRequest.of(0, 20), 1);
 
         when(vocabularyService.findAll(any(Pageable.class))).thenReturn(page);

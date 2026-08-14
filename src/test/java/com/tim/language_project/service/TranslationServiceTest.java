@@ -146,8 +146,8 @@ class TranslationServiceTest {
         assertThat(response.fromCache()).isTrue();
         assertThat(response.thaiText()).isEqualTo("ฉันอยากดื่มเหล้า");
 
-        // 檔名要組成前端可以直接用的網址
-        assertThat(response.audioUrl()).isEqualTo("/audio/a3f9c2.mp3");
+        // 音檔已改由 audio_asset 管理，快取路徑的音檔在 Task 13 才接回來。
+        assertThat(response.audioUrl()).isNull();
 
         // ★ 這兩行是這個測試的重點：一毛錢都不能花
         verify(translationClient, never()).translate(anyString());
@@ -213,7 +213,7 @@ class TranslationServiceTest {
     @DisplayName("語音失敗時仍應回傳翻譯結果，音檔為 null")
     void shouldReturnTranslationWhenSpeechFails() {
         when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
-        when(vocabularyRepository.findByChineseText("水")).thenReturn(Optional.empty());
+        when(vocabularyRepository.findByChineseText("水")).thenReturn(List.of());
         when(translationClient.translate("水")).thenReturn(new TranslationResult(
                 "น้ำ", "náam",
                 List.of(new TranslationWord("水", "น้ำ", "náam")),
@@ -246,7 +246,7 @@ class TranslationServiceTest {
     @DisplayName("模型回報無法翻譯時應拋出錯誤，且不得寫入資料庫")
     void shouldRejectUntranslatableInputAndNotPersist() {
         when(translationQueryRepository.findByKey("嘎逼", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
-        when(vocabularyRepository.findByChineseText("嘎逼")).thenReturn(Optional.empty());
+        when(vocabularyRepository.findByChineseText("嘎逼")).thenReturn(List.of());
         when(translationClient.translate("嘎逼"))
                 .thenReturn(TranslationResult.untranslatable("gpt-test", 95L, 8L));
 
@@ -290,7 +290,7 @@ class TranslationServiceTest {
                         "水", "น้ำ", "náam")));
         when(translationSegmentRepository.findByQueryIdOrderBySeqNo(88L))
                 .thenReturn(List.of(new TranslationSegmentDto(1, "水", "น้ำ", "náam")));
-        when(vocabularyRepository.findByChineseText("水")).thenReturn(Optional.empty());
+        when(vocabularyRepository.findByChineseText("水")).thenReturn(List.of());
         when(translationClient.translate("水")).thenReturn(new TranslationResult(
                 "น้ำ", "náam",
                 List.of(new TranslationWord("水", "น้ำ", "náam")),
@@ -323,7 +323,8 @@ class TranslationServiceTest {
     void shouldUseVocabularyInsteadOfCallingTranslation() {
         when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
         when(vocabularyRepository.findByChineseText("水"))
-                .thenReturn(Optional.of(new VocabularyDto(7L, "水", "น้ำ", "náam")));
+                .thenReturn(List.of(new VocabularyDto(
+                        7L, "水", "น้ำ", "náam", null, null, null)));
         when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.of("b1c2d3.mp3"));
 
         TranslationResponseDto response = translationService.translate("水");

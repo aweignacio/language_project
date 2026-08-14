@@ -164,7 +164,10 @@ public class TranslationPersistenceService {
             return;
         }
 
-        List<String> existing = vocabularyRepository.findExistingChineseTexts(chineseTexts);
+        // 暫時只取出中文字比對，Task 12 會改成用「中文＋泰文」判斷並補齊標籤。
+        List<String> existing = vocabularyRepository.findAllByChineseTextIn(chineseTexts).stream()
+                .map(Vocabulary::getChineseText)
+                .toList();
 
         List<Vocabulary> newEntries = new ArrayList<>();
 

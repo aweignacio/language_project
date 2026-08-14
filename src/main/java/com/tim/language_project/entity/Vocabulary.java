@@ -1,5 +1,7 @@
 package com.tim.language_project.entity;
 
+import com.tim.language_project.enums.GenderUsageEnum;
+import com.tim.language_project.enums.PolitenessEnum;
 import com.tim.language_project.enums.VocabularySourceTypeEnum;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -16,8 +18,9 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * 中泰對照的單字，由每次查詢的拆解結果慢慢累積而成。
- * 這裡不存音檔 —— 只有查詢快取那張表擁有音檔。
+ * 中泰對照的一個「說法」。同一個中文詞可以有多列 ——
+ * 例如「我」會有 ผม、ฉัน、กู 三列，這是預期行為不是資料重複。
+ * 這裡不存音檔，全站的音檔一律由 audio_asset 持有。
  */
 @Entity
 @Table(name = "vocabulary")
@@ -39,6 +42,24 @@ public class Vocabulary {
 
     @Column(name = "romanization", columnDefinition = "NVARCHAR(100)", nullable = false)
     private String romanization;
+
+    /**
+     * 這個說法適合哪種性別使用。
+     * 從句子拆解沉澱下來的詞沒有這項資訊，為 null，
+     * 日後單獨查詢該詞時才會補上。
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gender_usage", length = 10)
+    private GenderUsageEnum genderUsage;
+
+    /** 禮貌程度。同樣可能為 null。 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "politeness", length = 10)
+    private PolitenessEnum politeness;
+
+    /** 中文說明，例如「男生自稱，正式或對不熟的人使用」。 */
+    @Column(name = "note", columnDefinition = "NVARCHAR(200)")
+    private String note;
 
     /** 維持第一次寫入時的值；單字已存在就不會再更新這個欄位。 */
     @Enumerated(EnumType.STRING)

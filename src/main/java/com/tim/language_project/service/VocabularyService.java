@@ -37,7 +37,10 @@ public class VocabularyService {
                         vocabulary.getId(),
                         vocabulary.getChineseText(),
                         vocabulary.getThaiText(),
-                        vocabulary.getRomanization()))
+                        vocabulary.getRomanization(),
+                        vocabulary.getGenderUsage(),
+                        vocabulary.getPoliteness(),
+                        vocabulary.getNote()))
                 .orElseThrow(() -> new BusinessException(ErrorCodeEnum.VOCABULARY_NOT_FOUND));
     }
 }

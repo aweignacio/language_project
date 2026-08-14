@@ -36,20 +36,23 @@ package com.tim.language_project.repository;
 
 import com.tim.language_project.dto.response.VocabularyDto;
 import com.tim.language_project.entity.Vocabulary;
+import com.tim.language_project.enums.GenderUsageEnum;
+import com.tim.language_project.enums.PolitenessEnum;
 import com.tim.language_project.enums.VocabularySourceTypeEnum;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
-import java.util.Optional;
 
 // assertThat 是「檢查結果對不對」的工具，來自 AssertJ 這套函式庫。
 // 前面加 static，是為了等一下可以直接寫 assertThat(...)，
 // 不用每次都寫成 Assertions.assertThat(...)。
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /*
  * ── 貼紙一：@DataJpaTest ─────────────────────────────────────────────────
@@ -140,11 +143,12 @@ class VocabularyRepositoryTest {
          * 這一行就是這支測試真正想驗的東西：
          * findByChineseText 這個查詢方法，到底能不能正常運作。
          *
-         * Optional 是 Java 用來表達「可能有、可能沒有」的容器。
-         * 查得到就裝著 VocabularyDto，查不到就是空的。
-         * 用它的好處是強迫你處理「查不到」的情況，不會忘記而爆 null。
+         * ★ 2026-08-14 起它回傳的是 List 不是 Optional。
+         *   因為一個中文詞可以有好幾種泰文說法（「我」有 ผม / ฉัน / กู），
+         *   那正是「多重說法」這個功能的全部意義，見下面的測試三。
+         *   查不到就是空的 List，不會是 null。
          */
-        Optional<VocabularyDto> found = vocabularyRepository.findByChineseText("測試勿刪酒");
+        List<VocabularyDto> found = vocabularyRepository.findByChineseText("測試勿刪酒");
 
         /*
          * ── 第三段：檢查結果（Assert）───────────────────────────────
@@ -159,8 +163,8 @@ class VocabularyRepositoryTest {
          * 沒有 assertThat 的測試只是跑一跑，永遠不會失敗，等於沒測。
          */
 
-        // 我主張：有查到東西（Optional 裡面不是空的）
-        assertThat(found).isPresent();
+        // 我主張：剛好查到一筆
+        assertThat(found).hasSize(1);
 
         // 我主張：查到的泰文「一字不差」等於 เหล้า
         //
@@ -168,10 +172,10 @@ class VocabularyRepositoryTest {
         // 如果 Vocabulary 上的 columnDefinition = "NVARCHAR(100)" 標錯成 VARCHAR，
         // 資料庫存進去會變成「?????」，讀回來就不等於 เหล้า，
         // 這一行會立刻失敗並告訴你差在哪。
-        assertThat(found.get().thaiText()).isEqualTo("เหล้า");
+        assertThat(found.get(0).thaiText()).isEqualTo("เหล้า");
 
         // 我主張：拼音也沒壞。lâo 的 â 一樣是非 ASCII 字元，同樣會被 VARCHAR 吃掉。
-        assertThat(found.get().romanization()).isEqualTo("lâo");
+        assertThat(found.get(0).romanization()).isEqualTo("lâo");
     }
 
     /*
@@ -202,8 +206,8 @@ class VocabularyRepositoryTest {
          *
          * 測試要涵蓋「該出現的有出現」和「不該出現的沒出現」兩面。
          */
-        List<String> existing =
-                vocabularyRepository.findExistingChineseTexts(List.of("測試勿刪我", "測試勿刪水", "測試勿刪不存在的詞"));
+        List<Vocabulary> existing = vocabularyRepository.findAllByChineseTextIn(
+                List.of("測試勿刪我", "測試勿刪水", "測試勿刪不存在的詞"));
 
         /*
          * ── 第三段：檢查結果 ──
@@ -217,7 +221,100 @@ class VocabularyRepositoryTest {
          *
          * 用「剛好等於」而不是「有包含」，才能同時驗證上面兩種錯誤。
          */
-        assertThat(existing).containsExactlyInAnyOrder("測試勿刪我", "測試勿刪水");
+        assertThat(existing).extracting(Vocabulary::getChineseText)
+                .containsExactlyInAnyOrder("測試勿刪我", "測試勿刪水");
+    }
+
+    /*
+     * ═══ 測試三：同一個中文詞可以有多種泰文說法 ═════════════════════════
+     *
+     * ★ 這是整個「多重說法」功能的地基。
+     *
+     *   舊的唯一鍵是「一個中文詞只能一列」，那條規則存在的話，
+     *   「我」的第二種說法根本寫不進去 —— 前面所有的工作都會白做。
+     *
+     *   唯一鍵改成「中文＋泰文」之後，同一個詞就能存好幾種說法，
+     *   而同一種說法仍然不會重複（那是測試四在守的）。
+     */
+    @Test
+    @DisplayName("同一個中文詞可以有多個泰文說法")
+    void shouldAllowMultipleThaiVariantsForSameChineseText() {
+        vocabularyRepository.saveAndFlush(newVocabulary(
+                "測試勿刪我", "ผม", "pǒm", GenderUsageEnum.MALE, PolitenessEnum.FORMAL,
+                "男生自稱，正式或對不熟的人使用"));
+        vocabularyRepository.saveAndFlush(newVocabulary(
+                "測試勿刪我", "ฉัน", "chǎn", GenderUsageEnum.FEMALE, PolitenessEnum.FORMAL,
+                "女生自稱"));
+        vocabularyRepository.saveAndFlush(newVocabulary(
+                "測試勿刪我", "กู", "guu", GenderUsageEnum.BOTH, PolitenessEnum.RUDE,
+                "很不客氣，只能對很熟的朋友使用"));
+
+        List<VocabularyDto> variants = vocabularyRepository.findByChineseText("測試勿刪我");
+
+        assertThat(variants).hasSize(3);
+        assertThat(variants).extracting(VocabularyDto::thaiText)
+                .containsExactlyInAnyOrder("ผม", "ฉัน", "กู");
+    }
+
+    /*
+     * ═══ 測試四：同一組中文與泰文只能有一列 ═════════════════════════════
+     *
+     * 唯一鍵的另一半。少了它，同一個說法會被重複寫入 ——
+     * 畫面上會出現兩個看起來一模一樣的說法，使用者以為那是兩個不同的詞。
+     */
+    @Test
+    @DisplayName("同一組中文與泰文不可重複寫入")
+    void shouldRejectDuplicateChineseAndThai() {
+        vocabularyRepository.saveAndFlush(newVocabulary(
+                "測試勿刪酒", "เหล้า", "lâo", null, null, null));
+
+        assertThatThrownBy(() -> vocabularyRepository.saveAndFlush(newVocabulary(
+                "測試勿刪酒", "เหล้า", "lao", null, null, null)))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    /*
+     * ═══ 測試五：性別、禮貌、說明三欄可以是 null ═══════════════════════
+     *
+     * 從句子拆解沉澱下來的詞沒有這三項資訊 ——
+     * 翻一整句時我們不會去問模型「這句話裡的每個詞各適合誰用」。
+     *
+     * 所以那三欄必須允許 null。不允許的話，翻一句話就會整個寫入失敗。
+     * 那些空欄位日後單獨查詢該詞時才會被補上（見 TranslationPersistenceService）。
+     */
+    @Test
+    @DisplayName("性別、禮貌、說明三欄可以是 null")
+    void shouldAllowNullLabels() {
+        vocabularyRepository.saveAndFlush(newVocabulary(
+                "測試勿刪水", "น้ำ", "náam", null, null, null));
+
+        List<VocabularyDto> found = vocabularyRepository.findByChineseText("測試勿刪水");
+
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).genderUsage()).isNull();
+        assertThat(found.get(0).politeness()).isNull();
+        assertThat(found.get(0).note()).isNull();
+    }
+
+    /**
+     * 建一個帶著標籤的說法。上面三個新測試共用。
+     */
+    private Vocabulary newVocabulary(String chineseText,
+                                     String thaiText,
+                                     String romanization,
+                                     GenderUsageEnum genderUsage,
+                                     PolitenessEnum politeness,
+                                     String note) {
+        Vocabulary vocabulary = new Vocabulary();
+        vocabulary.setChineseText(chineseText);
+        vocabulary.setThaiText(thaiText);
+        vocabulary.setRomanization(romanization);
+        vocabulary.setGenderUsage(genderUsage);
+        vocabulary.setPoliteness(politeness);
+        vocabulary.setNote(note);
+        vocabulary.setSourceType(VocabularySourceTypeEnum.DIRECT);
+
+        return vocabulary;
     }
 
     /*

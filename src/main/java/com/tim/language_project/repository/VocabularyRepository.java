@@ -17,28 +17,44 @@ import java.util.Optional;
  */
 public interface VocabularyRepository extends JpaRepository<Vocabulary, Long> {
 
+    /*
+     * ★ 回傳的是 List 不是 Optional。
+     *   一個中文詞在這張表可能佔好幾列（「我」有 ผม / ฉัน / กู 三列），
+     *   那就是「多重說法」這個功能的全部意義。
+     */
     @Query("""
             SELECT new com.tim.language_project.dto.response.VocabularyDto(
                 vocabulary.id,
                 vocabulary.chineseText,
                 vocabulary.thaiText,
-                vocabulary.romanization
+                vocabulary.romanization,
+                vocabulary.genderUsage,
+                vocabulary.politeness,
+                vocabulary.note
             )
 
             FROM Vocabulary vocabulary
 
             WHERE vocabulary.chineseText = :chineseText
-            """)
-    Optional<VocabularyDto> findByChineseText(@Param("chineseText") String chineseText);
 
+            ORDER BY vocabulary.id
+            """)
+    List<VocabularyDto> findByChineseText(@Param("chineseText") String chineseText);
+
+    /*
+     * ★ 撈出「整個實體」而不是只撈中文字。
+     *   因為寫入時要判斷的不只是「這個說法在不在」，
+     *   還要在它已經存在、但性別／禮貌／說明是 null 時把那三欄補上
+     *   （合併規則見 TranslationPersistenceService）。只撈字串就做不到這件事。
+     */
     @Query("""
-            SELECT vocabulary.chineseText
+            SELECT vocabulary
 
             FROM Vocabulary vocabulary
 
             WHERE vocabulary.chineseText IN :chineseTexts
             """)
-    List<String> findExistingChineseTexts(
+    List<Vocabulary> findAllByChineseTextIn(
             @Param("chineseTexts") Collection<String> chineseTexts);
 
     @Query("""
@@ -46,7 +62,10 @@ public interface VocabularyRepository extends JpaRepository<Vocabulary, Long> {
                 vocabulary.id,
                 vocabulary.chineseText,
                 vocabulary.thaiText,
-                vocabulary.romanization
+                vocabulary.romanization,
+                vocabulary.genderUsage,
+                vocabulary.politeness,
+                vocabulary.note
             )
 
             FROM Vocabulary vocabulary

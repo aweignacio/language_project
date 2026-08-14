@@ -252,10 +252,11 @@ public class TranslationService {
      * 整句輸入剛好是一個已知單字時，直接用單字庫的答案，省下一次付費呼叫。
      */
     private TranslationResult resolveTranslation(String sourceText) {
-        Optional<VocabularyDto> knownWord = vocabularyRepository.findByChineseText(sourceText);
+        // 這條捷徑整段會在 Task 13 移除，這裡只是暫時讓它跟得上新的回傳型別。
+        List<VocabularyDto> knownWords = vocabularyRepository.findByChineseText(sourceText);
 
-        if (knownWord.isPresent()) {
-            VocabularyDto word = knownWord.get();
+        if (!ObjectUtils.isEmpty(knownWords)) {
+            VocabularyDto word = knownWords.get(0);
 
             return new TranslationResult(
                     word.thaiText(),
