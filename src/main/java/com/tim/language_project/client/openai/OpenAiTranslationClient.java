@@ -142,6 +142,49 @@ package com.tim.language_project.client.openai;
  *                                   → 回給前端顯示
  *
  * ══════════════════════════════════════════════════════════════════════════
+ *  ★ 2026-08-14 起：兩套提示詞，選哪一套看方向
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  以前只有一套提示詞，而且是在建構子裡用 defaultSystem 設定好、
+ *  每次呼叫都用同一套。現在不行了 —— 中翻泰和泰翻中要交代的事完全不同：
+ *
+ *      ZH_TO_TH_PROMPT   要交代性別怎麼造句（ผม/ครับ 還是 ฉัน/ค่ะ）、
+ *                        還要在輸入是單一個詞時列出各種說法
+ *      TH_TO_ZH_PROMPT   要交代切詞（泰文詞與詞之間沒有空格）、
+ *                        還有句尾助詞 ครับ/ค่ะ 不可以因為翻不出中文就丟掉
+ *
+ *  所以改成每次呼叫時用 .system(systemPromptOf(direction)) 帶入。
+ *
+ *  性別則放在使用者訊息裡，不放系統提示詞：
+ *
+ *      "說話者性別：男性\n輸入：我想喝酒"
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  ★ variants（多重說法）從哪來，為什麼一定要去重
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  你查「我」的時候，模型回來的 JSON 會多一段：
+ *
+ *      "variants": [
+ *        { "thaiText": "ผม",  "romanization": "pǒm",
+ *          "genderUsage": "MALE",   "politeness": "FORMAL", "note": "男生自稱" },
+ *        { "thaiText": "ฉัน",  "romanization": "chǎn",
+ *          "genderUsage": "FEMALE", "politeness": "FORMAL", "note": "女生自稱" },
+ *        { "thaiText": "กู",   "romanization": "guu",
+ *          "genderUsage": "BOTH",   "politeness": "RUDE",   "note": "很不客氣" }
+ *      ]
+ *
+ *  ★ 為什麼要去重：模型有「盡量湊到你期待的數量」的本性。
+ *    最常見的湊法就是把同一個泰文換個拼音寫法再交一次：
+ *
+ *        { "thaiText": "ผม", "romanization": "pǒm"  }
+ *        { "thaiText": "ผม", "romanization": "phom" }   ← 同一個字，湊數的
+ *
+ *    不去重的話，畫面上會出現兩個看起來一模一樣的說法（使用者以為那是
+ *    兩個不同的詞），而且寫進資料庫時會撞上 vocabulary 的唯一鍵。
+ *    toVariants 用 LinkedHashMap 以泰文為鍵去重，順序照模型給的排。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
  *  補充：一次翻譯總共出現三段 JSON
  * ══════════════════════════════════════════════════════════════════════════
  *
@@ -169,12 +212,17 @@ package com.tim.language_project.client.openai;
 
 import com.tim.language_project.client.TranslationClient;
 import com.tim.language_project.client.model.TranslationResult;
+import com.tim.language_project.client.model.TranslationVariant;
 import com.tim.language_project.client.model.TranslationWord;
 import com.tim.language_project.client.usage.ApiUsageRecorder;
 import com.tim.language_project.config.AiPricingProperties;
 import com.tim.language_project.enums.AiProviderEnum;
 import com.tim.language_project.enums.AiServiceTypeEnum;
 import com.tim.language_project.enums.ErrorCodeEnum;
+import com.tim.language_project.enums.GenderUsageEnum;
+import com.tim.language_project.enums.PolitenessEnum;
+import com.tim.language_project.enums.SpeakerGenderEnum;
+import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.enums.UsageUnitTypeEnum;
 import com.tim.language_project.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
@@ -187,7 +235,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ObjectUtils;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -198,13 +248,24 @@ import java.util.regex.Pattern;
 @Component
 public class OpenAiTranslationClient implements TranslationClient {
 
-    private static final String SYSTEM_PROMPT = """
+    /** 兩個方向共用的誠實原則，避免同一段話寫兩次。 */
+    private static final String HONESTY_RULES = """
+            translatable 欄位的規則（很重要，不要猜）：
+            - 輸入是有意義、翻得出來的內容（包含數字，例如「5」就是「ห้า」）→ 設為 true
+            - 輸入是亂碼、無意義的字串、或你無法確定它是什麼意思 → 設為 false，
+              並且其餘欄位留空、words 與 variants 給空陣列
+            - 寧可誠實回報 false，也不要硬湊一個看起來合理的答案。
+              使用者是學習者，一個編造出來的詞會被他背起來。
+            """;
+
+    private static final String ZH_TO_TH_PROMPT = """
             你是中文轉泰文的翻譯助理，服務對象是正在學泰文的中文使用者。
 
             收到一段中文後，請回傳：
-            1. 整段對應的泰文
-            2. 「第 1 點那段泰文」的羅馬拼音，需標註聲調符號（例如 chǎn、dùuem、lâo）
-            3. 逐詞對照：把輸入依照語意切成詞，每個詞給出中文、泰文、羅馬拼音
+            1. chineseText：原封不動的輸入內容
+            2. thaiText：整段對應的泰文
+            3. romanization：「thaiText」的羅馬拼音，需標註聲調符號（例如 chǎn、dùuem、lâo）
+            4. words：逐詞對照，把輸入依照語意切成詞，每個詞給出中文、泰文、羅馬拼音
 
             ★ romanization 欄位最容易搞錯，請特別注意：
 
@@ -223,16 +284,56 @@ public class OpenAiTranslationClient implements TranslationClient {
             - 詞的順序必須與泰文語序一致
             - 每個詞的泰文必須是該詞單獨使用時的寫法
 
-            translatable 欄位的規則（很重要，不要猜）：
-            - 輸入是有意義、翻得出來的內容（包含數字，例如「5」就是「ห้า」）→ 設為 true
-            - 輸入是亂碼、無意義的字串、或你無法確定它是什麼意思 → 設為 false，
-              並且 thaiText、romanization 留空、words 給空陣列
-            - 寧可誠實回報 false，也不要硬湊一個看起來合理的答案。
-              使用者是學習者，一個編造出來的詞會被他背起來。
-            """;
+            說話者的性別會在使用者訊息裡指明，造句時請遵守：
+            - 男性：自稱用 ผม，句尾禮貌助詞用 ครับ
+            - 女性：自稱用 ฉัน 或 ดิฉัน，句尾禮貌助詞用 ค่ะ
+
+            variants —— 這個詞的各種說法（只有輸入是單一個詞時才要填）：
+
+            如果 words 只有一個元素，請額外列出這個詞在泰文的各種說法，每個給出：
+              thaiText      泰文
+              romanization  羅馬拼音（含聲調符號）
+              genderUsage   MALE / FEMALE / BOTH ——「哪種性別的人會這樣說」，
+                            不分性別就填 BOTH
+              politeness    FORMAL / NEUTRAL / CASUAL / RUDE
+              note          一句中文說明，講清楚什麼場合用、對誰用會失禮
+
+            variants 的規則（很重要）：
+            - 最多 5 個
+            - ★ 寧可只給一個，也不要為了看起來豐富而硬湊。
+              大部分的詞就只有一種說法，這很正常，誠實回報即可。
+            - 不同的說法泰文必須真的不同。
+              不可以拿同一個泰文換個拼音寫法充數。
+            - words 超過一個元素時，variants 給空陣列。
+
+            """ + HONESTY_RULES;
+
+    private static final String TH_TO_ZH_PROMPT = """
+            你是泰文轉中文的翻譯助理，服務對象是正在學泰文的中文使用者。
+
+            收到一段泰文後，請回傳：
+            1. thaiText：原封不動的輸入內容
+            2. chineseText：對應的繁體中文
+            3. romanization：「thaiText」的羅馬拼音，需標註聲調符號
+            4. words：逐詞對照，把泰文依語意切成詞，每個詞給出泰文、羅馬拼音、中文意思
+
+            ★ 泰文書寫時詞與詞之間沒有空格，切詞是這項工作最重要的部分。
+
+            句尾助詞的處理（不要省略）：
+            - ครับ、ค่ะ、นะ、จ๊ะ 這類助詞沒有對應的中文詞，但一定要列進 words
+            - 它們的 chineseText 請填一個括號標籤，例如「（男性禮貌語助詞）」
+            - ★ 不可以因為「翻不出中文」就把它從 words 裡拿掉。
+              這些是泰文最高頻的字，使用者正需要知道它們在做什麼。
+
+            這個方向不需要 variants，一律回空陣列。
+
+            """ + HONESTY_RULES;
 
     /** 用來偵測泰文欄位裡有沒有混進中文字（CJK 統一表意文字的範圍）。 */
     private static final Pattern CHINESE_PATTERN = Pattern.compile("[\\u4e00-\\u9fff]");
+
+    /** 一個詞最多列幾種說法。上限只是保險，真正防編造的是提示詞那句「寧可少給」。 */
+    private static final int MAX_VARIANTS = 5;
 
     private final ChatClient chatClient;
 
@@ -247,21 +348,23 @@ public class OpenAiTranslationClient implements TranslationClient {
                                    AiPricingProperties pricingProperties,
                                    @Value("${spring.ai.openai.chat.options.model:gpt-4o-mini}")
                                    String modelName) {
-        this.chatClient = ChatClient.builder(chatModel)
-                .defaultSystem(SYSTEM_PROMPT)
-                .build();
+        // ★ 不再用 defaultSystem —— 提示詞現在有兩套，要依方向在呼叫時決定。
+        this.chatClient = ChatClient.builder(chatModel).build();
         this.apiUsageRecorder = apiUsageRecorder;
         this.pricingProperties = pricingProperties;
         this.modelName = modelName;
     }
 
     @Override
-    public TranslationResult translate(String sourceText) {
+    public TranslationResult translate(String sourceText,
+                                       TranslationDirectionEnum direction,
+                                       SpeakerGenderEnum gender) {
         try {
             // 用 responseEntity 而不是 entity，是為了在拿到轉好的物件之外，
             // 同時拿到完整的 ChatResponse —— 真實的 token 用量只在它身上。
             ResponseEntity<ChatResponse, TranslationPayload> response = chatClient.prompt()
-                    .user(sourceText)
+                    .system(systemPromptOf(direction))
+                    .user(userMessageOf(sourceText, direction, gender))
                     .call()
                     .responseEntity(TranslationPayload.class);
 
@@ -313,7 +416,11 @@ public class OpenAiTranslationClient implements TranslationClient {
                     .toList();
 
             return new TranslationResult(
-                    payload.thaiText(), payload.romanization(), words,
+                    payload.chineseText(),
+                    payload.thaiText(),
+                    payload.romanization(),
+                    words,
+                    toVariants(payload.variants()),
                     modelName, inputTokens, outputTokens, true);
 
         } catch (BusinessException businessException) {
@@ -328,19 +435,88 @@ public class OpenAiTranslationClient implements TranslationClient {
         }
     }
 
+    private String systemPromptOf(TranslationDirectionEnum direction) {
+        return Objects.equals(direction, TranslationDirectionEnum.TH_TO_ZH)
+                ? TH_TO_ZH_PROMPT
+                : ZH_TO_TH_PROMPT;
+    }
+
+    /**
+     * 中翻泰時把性別一起交代給模型，泰翻中不需要。
+     */
+    private String userMessageOf(String sourceText,
+                                 TranslationDirectionEnum direction,
+                                 SpeakerGenderEnum gender) {
+        if (Objects.equals(direction, TranslationDirectionEnum.TH_TO_ZH)
+                || Objects.isNull(gender)) {
+            return sourceText;
+        }
+
+        return "說話者性別：" + gender.getDescription() + "\n輸入：" + sourceText;
+    }
+
     /**
      * 檢查泰文欄位裡有沒有混進中文字。
      * 模型能力不足時會翻一半停手，把沒翻出來的中文原字直接貼在泰文裡，
      * 例如「ฉันอยาก吃ข้าว」。這種結果看起來很像成功，
      * 但存進去就會永久污染快取與單字庫，所以在這裡當掉。
+     *
+     * ★ variants 是 2026-08-14 新開的路徑，一定要一起檢查 ——
+     *   漏掉的話，污染會從新路徑繞過這道防線。
      */
     private boolean containsChinese(TranslationPayload payload) {
         if (CHINESE_PATTERN.matcher(payload.thaiText()).find()) {
             return true;
         }
 
-        return payload.words().stream()
+        boolean wordsContainChinese = payload.words().stream()
                 .anyMatch(word -> CHINESE_PATTERN.matcher(word.thaiText()).find());
+
+        if (wordsContainChinese) {
+            return true;
+        }
+
+        if (ObjectUtils.isEmpty(payload.variants())) {
+            return false;
+        }
+
+        return payload.variants().stream()
+                .filter(variant -> !ObjectUtils.isEmpty(variant.thaiText()))
+                .anyMatch(variant -> CHINESE_PATTERN.matcher(variant.thaiText()).find());
+    }
+
+    /**
+     * 整理模型回來的說法：丟掉殘缺的、去掉泰文重複的、最多留 5 個。
+     *
+     * ★ 去重是必要的。模型有「盡量湊到期待數量」的本性，
+     *   最常見的湊法就是把同一個泰文換個拼音寫法再交一次。
+     *   留著的話畫面上會出現兩個看起來一樣的說法，寫入時還會撞唯一鍵。
+     */
+    private List<TranslationVariant> toVariants(List<VariantPayload> payloads) {
+        if (ObjectUtils.isEmpty(payloads)) {
+            return List.of();
+        }
+
+        Map<String, TranslationVariant> uniqueVariants = new LinkedHashMap<>();
+
+        for (VariantPayload payload : payloads) {
+            if (ObjectUtils.isEmpty(payload.thaiText())
+                    || ObjectUtils.isEmpty(payload.romanization())) {
+                // 殘缺的那一筆丟掉就好，不必整次翻譯失敗 ——
+                // 少一種說法不影響使用，但殘缺的資料存進去會一直錯下去。
+                log.warn("dropped an incomplete variant returned by the model");
+                continue;
+            }
+
+            uniqueVariants.putIfAbsent(payload.thaiText(), new TranslationVariant(
+                    payload.thaiText(),
+                    payload.romanization(),
+                    payload.genderUsage(),
+                    payload.politeness(),
+                    payload.note()));
+        }
+
+        return uniqueVariants.values().stream().limit(MAX_VARIANTS).toList();
     }
 
     private Usage usageOf(ChatResponse chatResponse) {
@@ -382,9 +558,11 @@ public class OpenAiTranslationClient implements TranslationClient {
      * 必須是一個「容器物件」—— OpenAI 的結構化輸出不接受最外層是陣列。
      */
     private record TranslationPayload(
+            String chineseText,
             String thaiText,
             String romanization,
             List<WordPayload> words,
+            List<VariantPayload> variants,
             /*
              * ★ 這裡是大寫的 Boolean，不是小寫的 boolean，這個差別很重要。
              *
@@ -404,5 +582,13 @@ public class OpenAiTranslationClient implements TranslationClient {
             String chineseText,
             String thaiText,
             String romanization) {
+    }
+
+    private record VariantPayload(
+            String thaiText,
+            String romanization,
+            GenderUsageEnum genderUsage,
+            PolitenessEnum politeness,
+            String note) {
     }
 }

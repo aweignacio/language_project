@@ -46,7 +46,7 @@ package com.tim.language_project.service;
  *
  *  ● 檢查
  *
- *        verify(translationClient, never()).translate(anyString());
+ *        verify(translationClient, never()).translate(anyString(), any(), any());
  *        verify(speechClient, never()).synthesize(anyString(), any());
  *
  *    ★ 這裡驗的是「沒有做某件事」。
@@ -150,7 +150,7 @@ class TranslationServiceTest {
         assertThat(response.audioUrl()).isNull();
 
         // ★ 這兩行是這個測試的重點：一毛錢都不能花
-        verify(translationClient, never()).translate(anyString());
+        verify(translationClient, never()).translate(anyString(), any(), any());
         verify(speechClient, never()).synthesize(anyString(), any());
     }
 
@@ -203,7 +203,7 @@ class TranslationServiceTest {
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCodeEnum.INPUT_TOO_LONG);
 
-        verify(translationClient, never()).translate(anyString());
+        verify(translationClient, never()).translate(anyString(), any(), any());
     }
 
     /*
@@ -214,9 +214,10 @@ class TranslationServiceTest {
     void shouldReturnTranslationWhenSpeechFails() {
         when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
         when(vocabularyRepository.findByChineseText("水")).thenReturn(List.of());
-        when(translationClient.translate("水")).thenReturn(new TranslationResult(
-                "น้ำ", "náam",
+        when(translationClient.translate("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(new TranslationResult(
+                "水", "น้ำ", "náam",
                 List.of(new TranslationWord("水", "น้ำ", "náam")),
+                List.of(),
                 "gpt-test", 10L, 5L, true));
         when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.empty());
 
@@ -247,7 +248,7 @@ class TranslationServiceTest {
     void shouldRejectUntranslatableInputAndNotPersist() {
         when(translationQueryRepository.findByKey("嘎逼", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
         when(vocabularyRepository.findByChineseText("嘎逼")).thenReturn(List.of());
-        when(translationClient.translate("嘎逼"))
+        when(translationClient.translate("嘎逼", TranslationDirectionEnum.ZH_TO_TH, null))
                 .thenReturn(TranslationResult.untranslatable("gpt-test", 95L, 8L));
 
         assertThatThrownBy(() -> translationService.translate("嘎逼"))
@@ -291,9 +292,10 @@ class TranslationServiceTest {
         when(translationSegmentRepository.findByQueryIdOrderBySeqNo(88L))
                 .thenReturn(List.of(new TranslationSegmentDto(1, "水", "น้ำ", "náam")));
         when(vocabularyRepository.findByChineseText("水")).thenReturn(List.of());
-        when(translationClient.translate("水")).thenReturn(new TranslationResult(
-                "น้ำ", "náam",
+        when(translationClient.translate("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(new TranslationResult(
+                "水", "น้ำ", "náam",
                 List.of(new TranslationWord("水", "น้ำ", "náam")),
+                List.of(),
                 "gpt-test", 10L, 5L, true));
         when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.of("xyz.mp3"));
 
@@ -305,7 +307,8 @@ class TranslationServiceTest {
 
         // ★ 沒有丟出例外，而且回的是別人寫好的那筆
         assertThat(response.thaiText()).isEqualTo("น้ำ");
-        assertThat(response.audioUrl()).isEqualTo("/audio/abc123.mp3");
+        // 音檔已改由 audio_asset 管理，快取路徑的音檔在 Task 13 才接回來。
+        assertThat(response.audioUrl()).isNull();
         assertThat(response.fromCache()).isTrue();
         assertThat(response.segments()).hasSize(1);
     }
@@ -333,6 +336,6 @@ class TranslationServiceTest {
         assertThat(response.audioUrl()).isEqualTo("/audio/b1c2d3.mp3");
 
         // ★ 重點：沒有花翻譯的錢
-        verify(translationClient, never()).translate(anyString());
+        verify(translationClient, never()).translate(anyString(), any(), any());
     }
 }

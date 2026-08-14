@@ -4,13 +4,16 @@ import java.util.List;
 
 /**
  * 一次輸入的翻譯結果。
- * 只查一個詞時 words 就只有一個元素，所以呼叫端不需要為「單詞」和「句子」寫兩套邏輯。
+ * 中文面與泰文面都帶回來，呼叫端不需要判斷方向就知道哪個是哪個。
+ * variants 只有在「輸入本身就是一個詞」時才有內容，其餘情況是空清單。
  * token 用量一併帶回來，讓呼叫端可以記錄費用。
  */
 public record TranslationResult(
+        String chineseText,
         String thaiText,
         String romanization,
         List<TranslationWord> words,
+        List<TranslationVariant> variants,
         String modelName,
         long inputTokens,
         long outputTokens,
@@ -24,7 +27,7 @@ public record TranslationResult(
     public static TranslationResult untranslatable(String modelName,
                                                    long inputTokens,
                                                    long outputTokens) {
-        return new TranslationResult(null, null, List.of(),
+        return new TranslationResult(null, null, null, List.of(), List.of(),
                 modelName, inputTokens, outputTokens, false);
     }
 }

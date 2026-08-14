@@ -73,7 +73,7 @@ package com.tim.language_project.client.openai;
  *
  *  ● 執行
  *
- *        openAiTranslationClient.translate("水");
+ *        openAiTranslationClient.translate("水", ZH_TO_TH, MALE);
  *
  *  ● 檢查
  *
@@ -114,7 +114,7 @@ package com.tim.language_project.client.openai;
  *    eq(120L) 的意思是「這個位置的參數必須剛好等於 120」。
  *
  * ══════════════════════════════════════════════════════════════════════════
- *  四個測試各自在防什麼
+ *  測試各自在防什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
  *    測試一  正常 JSON              防：JSON 沒被正確轉成物件、逐詞順序亂掉
@@ -142,6 +142,10 @@ import com.tim.language_project.config.AiPricingProperties;
 import com.tim.language_project.enums.AiProviderEnum;
 import com.tim.language_project.enums.AiServiceTypeEnum;
 import com.tim.language_project.enums.ErrorCodeEnum;
+import com.tim.language_project.enums.GenderUsageEnum;
+import com.tim.language_project.enums.PolitenessEnum;
+import com.tim.language_project.enums.SpeakerGenderEnum;
+import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.enums.UsageUnitTypeEnum;
 import com.tim.language_project.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
@@ -217,7 +221,8 @@ class OpenAiTranslationClientTest {
                 }
                 """, 120, 45);
 
-        TranslationResult result = openAiTranslationClient.translate("我想喝酒");
+        TranslationResult result = openAiTranslationClient.translate("我想喝酒",
+                TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
 
         assertThat(result.translatable()).isTrue();
         assertThat(result.thaiText()).isEqualTo("ฉันอยากดื่มเหล้า");
@@ -252,7 +257,8 @@ class OpenAiTranslationClientTest {
                 }
                 """, 120, 45);
 
-        openAiTranslationClient.translate("水");
+        openAiTranslationClient.translate("水",
+                TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
 
         verify(apiUsageRecorder).record(
                 eq(AiProviderEnum.OPENAI),
@@ -286,7 +292,8 @@ class OpenAiTranslationClientTest {
                 }
                 """, 80, 10);
 
-        assertThatThrownBy(() -> openAiTranslationClient.translate("我想喝酒"))
+        assertThatThrownBy(() -> openAiTranslationClient.translate("我想喝酒",
+                TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
@@ -324,7 +331,8 @@ class OpenAiTranslationClientTest {
                 }
                 """, 60, 12);
 
-        TranslationResult result = openAiTranslationClient.translate("水");
+        TranslationResult result = openAiTranslationClient.translate("水",
+                TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
 
         // 我主張：沒有被擋掉，正常回傳翻譯結果
         assertThat(result.translatable()).isTrue();
@@ -359,7 +367,8 @@ class OpenAiTranslationClientTest {
                 }
                 """, 110, 30);
 
-        assertThatThrownBy(() -> openAiTranslationClient.translate("我想吃飯"))
+        assertThatThrownBy(() -> openAiTranslationClient.translate("我想吃飯",
+                TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
@@ -399,7 +408,8 @@ class OpenAiTranslationClientTest {
                 }
                 """, 95, 8);
 
-        TranslationResult result = openAiTranslationClient.translate("嘎逼");
+        TranslationResult result = openAiTranslationClient.translate("嘎逼",
+                TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
 
         // 我主張：沒有丟例外，而是回一個標記為「翻不出來」的結果
         assertThat(result.translatable()).isFalse();
@@ -429,7 +439,8 @@ class OpenAiTranslationClientTest {
         given(chatModel.call(any(Prompt.class)))
                 .willThrow(new RuntimeException("connection reset"));
 
-        assertThatThrownBy(() -> openAiTranslationClient.translate("我想喝酒"))
+        assertThatThrownBy(() -> openAiTranslationClient.translate("我想喝酒",
+                TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCodeEnum.TRANSLATION_SERVICE_UNAVAILABLE);
@@ -439,6 +450,215 @@ class OpenAiTranslationClientTest {
                 eq(0L), eq(0L),
                 any(), any(),
                 eq(false));
+    }
+
+    /*
+     * ═══ 測試八：單字查詢要解析出多個說法 ═══════════════════════════════
+     *
+     * 這是整個改版的重點功能。模型回來的 variants 陣列要原樣變成物件，
+     * 包含性別與禮貌兩個標籤 —— 前端的排序和警示色都靠它們。
+     */
+    @Test
+    @DisplayName("單字查詢應解析出多個說法")
+    void shouldParseVariantsForSingleWord() {
+        givenModelReplies("""
+                {
+                  "chineseText": "我",
+                  "thaiText": "ผม",
+                  "romanization": "pǒm",
+                  "words": [ { "chineseText": "我", "thaiText": "ผม", "romanization": "pǒm" } ],
+                  "variants": [
+                    { "thaiText": "ผม", "romanization": "pǒm",
+                      "genderUsage": "MALE", "politeness": "FORMAL", "note": "男生自稱" },
+                    { "thaiText": "ฉัน", "romanization": "chǎn",
+                      "genderUsage": "FEMALE", "politeness": "FORMAL", "note": "女生自稱" },
+                    { "thaiText": "กู", "romanization": "guu",
+                      "genderUsage": "BOTH", "politeness": "RUDE", "note": "很不客氣" }
+                  ],
+                  "translatable": true
+                }
+                """, 100, 50);
+
+        TranslationResult result = openAiTranslationClient.translate(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
+
+        assertThat(result.variants()).hasSize(3);
+        assertThat(result.variants().get(2).genderUsage()).isEqualTo(GenderUsageEnum.BOTH);
+        assertThat(result.variants().get(2).politeness()).isEqualTo(PolitenessEnum.RUDE);
+    }
+
+    /*
+     * ═══ 測試九：泰文重複的說法要去重 ═══════════════════════════════════
+     *
+     * ★ 模型有「盡量湊到你期待的數量」的本性。
+     *   最常見的湊法就是把同一個泰文換個拼音寫法再交一次。
+     *   不去重的話，畫面上會出現兩個看起來一樣的說法，
+     *   使用者以為是兩個不同的詞，而且資料庫寫入會撞唯一鍵。
+     */
+    @Test
+    @DisplayName("泰文重複的說法應去重")
+    void shouldDeduplicateVariantsWithSameThaiText() {
+        givenModelReplies("""
+                {
+                  "chineseText": "我",
+                  "thaiText": "ผม",
+                  "romanization": "pǒm",
+                  "words": [ { "chineseText": "我", "thaiText": "ผม", "romanization": "pǒm" } ],
+                  "variants": [
+                    { "thaiText": "ผม", "romanization": "pǒm",
+                      "genderUsage": "MALE", "politeness": "FORMAL", "note": "男生自稱" },
+                    { "thaiText": "ผม", "romanization": "phom",
+                      "genderUsage": "MALE", "politeness": "NEUTRAL", "note": "另一種拼法" }
+                  ],
+                  "translatable": true
+                }
+                """, 100, 50);
+
+        TranslationResult result = openAiTranslationClient.translate(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
+
+        assertThat(result.variants()).hasSize(1);
+
+        // 保留的是先到的那一筆，不是後來覆蓋上去的
+        assertThat(result.variants().get(0).romanization()).isEqualTo("pǒm");
+    }
+
+    /*
+     * ═══ 測試十：說法超過五個時只保留前五個 ═════════════════════════════
+     */
+    @Test
+    @DisplayName("說法超過五個時只保留前五個")
+    void shouldCapVariantsAtFive() {
+        givenModelReplies(sixVariantsJson(), 100, 50);
+
+        TranslationResult result = openAiTranslationClient.translate(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
+
+        assertThat(result.variants()).hasSize(5);
+    }
+
+    /*
+     * ═══ 測試十一：說法裡的泰文混到中文字，整筆拒絕 ═════════════════════
+     *
+     * ★ 原本的中文字檢查只看 thaiText 和 words。
+     *   variants 是這次新開的路徑，忘了擴充的話，
+     *   「ผ我ม」這種半成品會從新路徑漏進單字庫，而且會被使用者背起來。
+     */
+    @Test
+    @DisplayName("說法的泰文混有中文字時應整筆拒絕")
+    void shouldRejectWhenVariantContainsChinese() {
+        givenModelReplies("""
+                {
+                  "chineseText": "我",
+                  "thaiText": "ผม",
+                  "romanization": "pǒm",
+                  "words": [ { "chineseText": "我", "thaiText": "ผม", "romanization": "pǒm" } ],
+                  "variants": [
+                    { "thaiText": "ผ我ม", "romanization": "pǒm",
+                      "genderUsage": "MALE", "politeness": "FORMAL", "note": "壞掉的資料" }
+                  ],
+                  "translatable": true
+                }
+                """, 100, 50);
+
+        assertThatThrownBy(() -> openAiTranslationClient.translate(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
+    }
+
+    /*
+     * ═══ 測試十二：欄位殘缺的說法丟掉，其餘保留 ═════════════════════════
+     *
+     * 少一種說法不影響使用，所以不必整次翻譯失敗；
+     * 但殘缺的資料存進去會一直錯下去，所以那一筆要丟掉。
+     */
+    @Test
+    @DisplayName("欄位殘缺的說法應被丟棄，其餘保留")
+    void shouldDropIncompleteVariants() {
+        givenModelReplies("""
+                {
+                  "chineseText": "我",
+                  "thaiText": "ผม",
+                  "romanization": "pǒm",
+                  "words": [ { "chineseText": "我", "thaiText": "ผม", "romanization": "pǒm" } ],
+                  "variants": [
+                    { "thaiText": "ผม", "romanization": "pǒm",
+                      "genderUsage": "MALE", "politeness": "FORMAL", "note": "男生自稱" },
+                    { "thaiText": "", "romanization": "chǎn",
+                      "genderUsage": "FEMALE", "politeness": "FORMAL", "note": "泰文是空的" }
+                  ],
+                  "translatable": true
+                }
+                """, 100, 50);
+
+        TranslationResult result = openAiTranslationClient.translate(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
+
+        assertThat(result.variants()).hasSize(1);
+    }
+
+    /*
+     * ═══ 測試十三：泰翻中要回中文結果，且不含說法 ═══════════════════════
+     *
+     * 泰翻中不需要 variants，而且 chineseText 要是翻譯結果、
+     * thaiText 要是使用者的輸入。方向弄反的話，畫面會顯示「泰文翻泰文」。
+     */
+    @Test
+    @DisplayName("泰翻中應回傳中文結果且不含說法")
+    void shouldTranslateThaiToChinese() {
+        givenModelReplies("""
+                {
+                  "chineseText": "我想喝酒",
+                  "thaiText": "ผมอยากดื่มเหล้าครับ",
+                  "romanization": "pǒm yàak dùuem lâo khráp",
+                  "words": [
+                    { "chineseText": "我", "thaiText": "ผม", "romanization": "pǒm" },
+                    { "chineseText": "（男性禮貌語助詞）", "thaiText": "ครับ",
+                      "romanization": "khráp" }
+                  ],
+                  "variants": [],
+                  "translatable": true
+                }
+                """, 100, 50);
+
+        TranslationResult result = openAiTranslationClient.translate(
+                "ผมอยากดื่มเหล้าครับ", TranslationDirectionEnum.TH_TO_ZH, null);
+
+        assertThat(result.chineseText()).isEqualTo("我想喝酒");
+        assertThat(result.thaiText()).isEqualTo("ผมอยากดื่มเหล้าครับ");
+        assertThat(result.variants()).isEmpty();
+
+        // 句尾助詞不可以被丟掉 —— 它是泰文最高頻的字之一
+        assertThat(result.words()).hasSize(2);
+    }
+
+    /** 六個說法的回應，用來驗證上限。 */
+    private String sixVariantsJson() {
+        return """
+                {
+                  "chineseText": "我",
+                  "thaiText": "ผม",
+                  "romanization": "pǒm",
+                  "words": [ { "chineseText": "我", "thaiText": "ผม", "romanization": "pǒm" } ],
+                  "variants": [
+                    { "thaiText": "ผม",   "romanization": "pǒm",   "genderUsage": "MALE",
+                      "politeness": "FORMAL",  "note": "一" },
+                    { "thaiText": "ฉัน",   "romanization": "chǎn",  "genderUsage": "FEMALE",
+                      "politeness": "FORMAL",  "note": "二" },
+                    { "thaiText": "ดิฉัน",  "romanization": "dì-chǎn", "genderUsage": "FEMALE",
+                      "politeness": "FORMAL",  "note": "三" },
+                    { "thaiText": "เรา",   "romanization": "rao",   "genderUsage": "BOTH",
+                      "politeness": "CASUAL",  "note": "四" },
+                    { "thaiText": "กู",    "romanization": "guu",   "genderUsage": "BOTH",
+                      "politeness": "RUDE",    "note": "五" },
+                    { "thaiText": "ข้า",    "romanization": "khâa",  "genderUsage": "BOTH",
+                      "politeness": "CASUAL",  "note": "六" }
+                  ],
+                  "translatable": true
+                }
+                """;
     }
 
     /*

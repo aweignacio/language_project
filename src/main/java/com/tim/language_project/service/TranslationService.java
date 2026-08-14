@@ -259,14 +259,17 @@ public class TranslationService {
             VocabularyDto word = knownWords.get(0);
 
             return new TranslationResult(
+                    word.chineseText(),
                     word.thaiText(),
                     word.romanization(),
                     List.of(new TranslationWord(
                             word.chineseText(), word.thaiText(), word.romanization())),
+                    List.of(),
                     VOCABULARY_SOURCE, 0L, 0L, true);
         }
 
-        return translationClient.translate(sourceText);
+        return translationClient.translate(
+                sourceText, TranslationDirectionEnum.ZH_TO_TH, null);
     }
 
     private List<TranslationSegmentDto> toSegmentDtos(List<TranslationWord> words) {
