@@ -26,6 +26,7 @@ public enum ErrorCodeEnum {
 
     VOCABULARY_NOT_FOUND(HttpStatus.NOT_FOUND, "找不到指定的單字"),
     AUDIO_FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "找不到音檔"),
+    SPEECH_TEXT_UNKNOWN(HttpStatus.BAD_REQUEST, "無法為未知的文字產生語音"),
 
     DATA_PERSIST_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "資料儲存失敗"),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "系統發生非預期錯誤");
