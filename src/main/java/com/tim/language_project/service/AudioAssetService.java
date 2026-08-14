@@ -126,6 +126,22 @@ public class AudioAssetService {
     }
 
     /**
+     * 只查現成的音檔，查不到就回空的，★絕對不會觸發合成★。
+     * 讀取快取時用這個 —— 快取命中的意義就是「這次不花錢」，
+     * 若在那條路上呼叫 resolveAudioUrl，音檔缺失時會偷偷變成一次付費呼叫，
+     * 而回應還標著 fromCache: true，帳目會對不起來。
+     */
+    public Optional<String> findExistingAudioUrl(String speechText,
+                                                 SpeechLanguageEnum language) {
+        if (ObjectUtils.isEmpty(speechText)) {
+            return Optional.empty();
+        }
+
+        return audioAssetRepository.findBySpeechTextAndLanguage(speechText, language)
+                .map(audioAsset -> toAudioUrl(audioAsset.filePath()));
+    }
+
+    /**
      * 寫入音檔紀錄。撞到唯一鍵代表另一個請求在我們合成的這幾秒內先寫進去了，
      * 這不是錯誤，忽略即可 —— 我們手上這個檔案照樣能播，只是多存了一份在硬碟上。
      */

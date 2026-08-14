@@ -15,12 +15,20 @@ import java.util.List;
 public interface TranslationSegmentRepository
         extends JpaRepository<TranslationSegment, TranslationSegmentId> {
 
+    /*
+     * ★ 兩個音檔網址在這裡固定給 null。
+     *   音檔不存在這張表上（全站的音檔由 audio_asset 持有），
+     *   而 JPQL 沒辦法在建構子表達式裡跨表把它們一起撈出來。
+     *   TranslationService 會在拿到結果之後自己補上。
+     */
     @Query("""
             SELECT new com.tim.language_project.dto.response.TranslationSegmentDto(
                 translationSegment.seqNo,
                 translationSegment.chineseText,
                 translationSegment.thaiText,
-                translationSegment.romanization
+                translationSegment.romanization,
+                NULL,
+                NULL
             )
 
             FROM TranslationSegment translationSegment

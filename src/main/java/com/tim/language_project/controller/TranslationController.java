@@ -26,7 +26,14 @@ package com.tim.language_project.controller;
  *        POST /api/v1/translations
  *        Content-Type: application/json
  *
- *        { "sourceText": "我想喝酒" }
+ *        { "sourceText": "我想喝酒", "gender": "MALE" }
+ *
+ *    ★ gender 是 2026-08-14 新增的，前端每次都會送。
+ *      泰文的自稱與句尾助詞分性別（男 ผม/ครับ、女 ฉัน/ค่ะ），
+ *      同一句中文的男版與女版是兩句不同的泰文。
+ *      輸入泰文時後端會忽略它 —— 泰翻中沒有性別概念。
+ *
+ *    ★ 「方向」不用送。你打中文還是泰文，後端自己看得出來（見 LanguageDetector）。
  *
  * ── 第 2 步｜Spring 依網址找到下面的 translate 方法 ─────────────────────
  *
@@ -70,12 +77,22 @@ package com.tim.language_project.controller;
  *        HTTP 200
  *        {
  *          "sourceText": "我想喝酒",
- *          "thaiText": "ฉันอยากดื่มเหล้า",
- *          "romanization": "chǎn yàak dùuem lâo",
- *          "audioUrl": "/audio/a3f9c2b81e47.mp3",
+ *          "direction": "ZH_TO_TH",
+ *          "gender": "MALE",
+ *          "chineseText": "我想喝酒",
+ *          "thaiText": "ผมอยากดื่มเหล้าครับ",
+ *          "romanization": "pǒm yàak dùuem lâo khráp",
+ *          "thaiAudioUrl": "/audio/th/a3f9c2b81e47.mp3",
+ *          "chineseAudioUrl": null,
  *          "fromCache": true,
- *          "segments": [ { "seqNo": 1, "chineseText": "我", ... }, ... ]
+ *          "segments": [ { "seqNo": 1, "chineseText": "我", ... }, ... ],
+ *          "variants": []
  *        }
+ *
+ *    ★ 音檔網址拆成中泰兩個（以前只有一個 audioUrl）。
+ *      為 null 代表還沒產生，前端顯示成灰色的鍵，點了才打 POST /api/v1/audio。
+ *
+ *    ★ variants 只有「查單一個詞」時才有內容，查句子時是空陣列。
  *
  * ── 第 7 步｜出錯的話呢？ ───────────────────────────────────────────────
  *
@@ -117,7 +134,8 @@ public class TranslationController {
     @PostMapping
     public ResponseEntity<TranslationResponseDto> translate(
             @RequestBody TranslationRequestDto request) {
-        TranslationResponseDto response = translationService.translate(request.sourceText());
+        TranslationResponseDto response =
+                translationService.translate(request.sourceText(), request.gender());
 
         // 讀快取回 200，真的建立了新東西回 201。
         HttpStatus status = response.fromCache() ? HttpStatus.OK : HttpStatus.CREATED;

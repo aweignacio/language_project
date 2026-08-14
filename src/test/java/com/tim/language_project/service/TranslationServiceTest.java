@@ -7,54 +7,29 @@ package com.tim.language_project.service;
  *
  *  測 TranslationService —— 整個查詢的「總指揮」。
  *
- *  前面幾支測試各測一個零件（翻譯、語音、記帳），這支測的是「順序與判斷」：
- *  什麼時候該查快取、什麼時候該花錢、什麼時候該擋下來、出事了怎麼辦。
+ *  前面幾支測試各測一個零件（翻譯、語音、記帳、寫入），這支測的是
+ *  「順序與判斷」：什麼時候該查快取、什麼時候該花錢、什麼時候該擋下來、
+ *  出事了怎麼辦。
  *
- *  ⚠ 不連資料庫、不連 OpenAI。四個依賴全部換成假的。
- *
- * ══════════════════════════════════════════════════════════════════════════
- *  流程：從你打指令到看見 Tests run: 8
- * ══════════════════════════════════════════════════════════════════════════
- *
- * ── 第 1 步｜你在終端機打指令 ───────────────────────────────────────────
- *
- *        .\mvnw.cmd -B test "-Dtest=TranslationServiceTest"
- *
- * ── 第 2 步｜Mockito 把六個依賴全部換成假的 ─────────────────────────────
- *
- *        translationQueryRepository      假的 → 決定「快取有沒有命中」
- *        translationSegmentRepository    假的 → 快取命中時給逐詞資料
- *        vocabularyRepository            假的 → 決定「單字庫有沒有這個詞」
- *        translationClient               假的 → 不會真的呼叫 OpenAI
- *        speechClient                    假的 → 不會真的生音檔
- *        translationPersistenceService   假的 → 不會真的寫資料庫
- *
- *    ★ 全部是假的，所以每個測試可以「指定劇本」：
- *      「這次快取沒命中、翻譯回這個、語音失敗」—— 這種組合在真實環境
- *      很難重現，但這裡一行就設定好了。
- *
- * ── 第 3 步｜以測試一（快取命中）為例 ───────────────────────────────────
- *
- *  ● 布置劇本
- *
- *        when(translationQueryRepository.findByKey("我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null))
- *                .thenReturn(Optional.of(快取資料));
- *
- *  ● 執行
- *
- *        translationService.translate("我想喝酒");
- *
- *  ● 檢查
- *
- *        verify(translationClient, never()).translate(anyString(), any(), any());
- *        verify(speechClient, never()).synthesize(anyString(), any());
- *
- *    ★ 這裡驗的是「沒有做某件事」。
- *      快取命中卻還去呼叫 OpenAI，功能上看不出差別 —— 畫面一樣正確 ——
- *      但每查一次就重複付一次錢。這種錯誤只有測試抓得到。
+ *  ⚠ 不連資料庫、不連 OpenAI。
  *
  * ══════════════════════════════════════════════════════════════════════════
- *  八個測試各自在防什麼
+ *  哪些東西被換成假的，哪些是真的
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *    translationQueryRepository      假的 → 決定「快取有沒有命中」
+ *    translationSegmentRepository    假的 → 快取命中時給逐詞資料
+ *    vocabularyRepository            假的 → 快取命中時給多重說法
+ *    translationClient               假的 → 不會真的呼叫 OpenAI
+ *    audioAssetService               假的 → ★會花錢的那一個，絕不能真的跑
+ *    translationPersistenceService   假的 → 不會真的寫資料庫
+ *
+ *    languageDetector          ★真的★ → 它只看字串本身，不連任何東西，
+ *                                        用真的比較貼近實際行為（@Spy）
+ *    audioStorageProperties    ★真的★ → 它就是一包設定值，預設 autoGenerate = [TH]
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  每個測試各自在防什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
  *    一  快取命中            防：★重複付費★，查過的東西又去問一次 OpenAI
@@ -65,19 +40,26 @@ package com.tim.language_project.service;
  *                              而錢已經先花掉了
  *    五  語音失敗            防：★聲音失敗把整個翻譯一起拖垮★
  *    六  AI 說翻不出來       防：★編造的詞被永久寫進快取與單字庫★
- *    七  單字庫已有這個詞    防：明明本地就有答案，還去付費問 OpenAI
- *    八  兩人同時查同一句    防：後到的那個撞唯一鍵爆掉，使用者看到 500
+ *    七  兩人同時查同一句    防：後到的那個撞唯一鍵爆掉，使用者看到 500
+ *    八  ★★單字庫捷徑不可回來★★  防：多重說法功能整個失效（見該測試說明）
+ *    九  查快取要帶性別      防：切到女生看到男生的講法
+ *    十  輸入泰文忽略性別    防：同一句泰文被翻譯兩次，白花一次錢
+ *    十一 不自動生中文音檔   防：每次查詢都多等一兩秒去生沒人要聽的東西
  */
 
-import com.tim.language_project.client.SpeechClient;
 import com.tim.language_project.client.TranslationClient;
 import com.tim.language_project.client.model.TranslationResult;
+import com.tim.language_project.client.model.TranslationVariant;
 import com.tim.language_project.client.model.TranslationWord;
+import com.tim.language_project.config.AudioStorageProperties;
 import com.tim.language_project.dto.response.TranslationQueryDto;
 import com.tim.language_project.dto.response.TranslationResponseDto;
 import com.tim.language_project.dto.response.TranslationSegmentDto;
 import com.tim.language_project.dto.response.VocabularyDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
+import com.tim.language_project.enums.GenderUsageEnum;
+import com.tim.language_project.enums.PolitenessEnum;
+import com.tim.language_project.enums.SpeakerGenderEnum;
 import com.tim.language_project.enums.SpeechLanguageEnum;
 import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.exception.BusinessException;
@@ -89,7 +71,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
@@ -99,12 +84,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-// 這張貼紙的作用見開頭第 2 步。
+/*
+ * LENIENT 是因為「音檔網址」這類共用的假動作不是每個測試都會用到，
+ * 嚴格模式會為此報「多餘的 stub」。這裡要測的是流程判斷，不是 stub 用得剛不剛好。
+ */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class TranslationServiceTest {
 
     @Mock
@@ -119,11 +109,20 @@ class TranslationServiceTest {
     @Mock
     private TranslationClient translationClient;
 
+    /** ★ 會花錢的那一個。換成假的才能用 verify 檢查「這次有沒有花錢」。 */
     @Mock
-    private SpeechClient speechClient;
+    private AudioAssetService audioAssetService;
 
     @Mock
     private TranslationPersistenceService translationPersistenceService;
+
+    /** 真的。它只看字串本身，不連資料庫也不連網路。 */
+    @Spy
+    private LanguageDetector languageDetector = new LanguageDetector();
+
+    /** 真的。就是一包設定值，預設 autoGenerate 只有 TH。 */
+    @Spy
+    private AudioStorageProperties audioStorageProperties = new AudioStorageProperties();
 
     @InjectMocks
     private TranslationService translationService;
@@ -134,24 +133,27 @@ class TranslationServiceTest {
     @Test
     @DisplayName("快取命中時不得呼叫外部服務")
     void shouldNotCallExternalServicesWhenCacheHits() {
-        when(translationQueryRepository.findByKey("我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null))
+        when(translationQueryRepository.findByKey(
+                "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(Optional.of(new TranslationQueryDto(
-                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null,
-                        "我想喝酒", "ฉันอยากดื่มเหล้า", "chǎn yàak dùuem lâo")));
+                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp")));
         when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
-                .thenReturn(List.of(new TranslationSegmentDto(1, "我", "ฉัน", "chǎn")));
+                .thenReturn(List.of(new TranslationSegmentDto(
+                        1, "我", "ผม", "pǒm", null, null)));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/a3f9c2.mp3"));
 
-        TranslationResponseDto response = translationService.translate("我想喝酒");
+        TranslationResponseDto response =
+                translationService.translate("我想喝酒", SpeakerGenderEnum.MALE);
 
         assertThat(response.fromCache()).isTrue();
-        assertThat(response.thaiText()).isEqualTo("ฉันอยากดื่มเหล้า");
-
-        // 音檔已改由 audio_asset 管理，快取路徑的音檔在 Task 13 才接回來。
-        assertThat(response.audioUrl()).isNull();
+        assertThat(response.thaiText()).isEqualTo("ผมอยากดื่มเหล้าครับ");
+        assertThat(response.thaiAudioUrl()).isEqualTo("/audio/th/a3f9c2.mp3");
 
         // ★ 這兩行是這個測試的重點：一毛錢都不能花
         verify(translationClient, never()).translate(anyString(), any(), any());
-        verify(speechClient, never()).synthesize(anyString(), any());
+        verify(audioAssetService, never()).resolveAudioUrl(anyString(), any());
     }
 
     /*
@@ -163,14 +165,17 @@ class TranslationServiceTest {
     @Test
     @DisplayName("輸入前後空白應去除後再查快取")
     void shouldTrimInputBeforeLookup() {
-        when(translationQueryRepository.findByKey("我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null))
+        when(translationQueryRepository.findByKey(
+                "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(Optional.of(new TranslationQueryDto(
-                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null,
-                        "我想喝酒", "ฉันอยากดื่มเหล้า", "chǎn")));
+                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm")));
         when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
                 .thenReturn(List.of());
+        when(vocabularyRepository.findByChineseText("我想喝酒")).thenReturn(List.of());
 
-        TranslationResponseDto response = translationService.translate("  我想喝酒  ");
+        TranslationResponseDto response =
+                translationService.translate("  我想喝酒  ", SpeakerGenderEnum.MALE);
 
         assertThat(response.sourceText()).isEqualTo("我想喝酒");
     }
@@ -181,7 +186,7 @@ class TranslationServiceTest {
     @Test
     @DisplayName("空白輸入應拋出 INPUT_REQUIRED")
     void shouldRejectBlankInput() {
-        assertThatThrownBy(() -> translationService.translate("   "))
+        assertThatThrownBy(() -> translationService.translate("   ", SpeakerGenderEnum.MALE))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCodeEnum.INPUT_REQUIRED);
@@ -198,7 +203,7 @@ class TranslationServiceTest {
     void shouldRejectTooLongInput() {
         String tooLong = "字".repeat(101);
 
-        assertThatThrownBy(() -> translationService.translate(tooLong))
+        assertThatThrownBy(() -> translationService.translate(tooLong, SpeakerGenderEnum.MALE))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCodeEnum.INPUT_TOO_LONG);
@@ -212,22 +217,24 @@ class TranslationServiceTest {
     @Test
     @DisplayName("語音失敗時仍應回傳翻譯結果，音檔為 null")
     void shouldReturnTranslationWhenSpeechFails() {
-        when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
-        when(vocabularyRepository.findByChineseText("水")).thenReturn(List.of());
-        when(translationClient.translate("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(new TranslationResult(
-                "水", "น้ำ", "náam",
-                List.of(new TranslationWord("水", "น้ำ", "náam")),
-                List.of(),
-                "gpt-test", 10L, 5L, true));
-        when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.empty());
+        when(translationQueryRepository.findByKey(
+                "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(Optional.empty());
+        when(translationClient.translate(
+                "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(singleWordResult());
+        when(audioAssetService.resolveAudioUrl(anyString(), any())).thenReturn(Optional.empty());
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.empty());
 
-        TranslationResponseDto response = translationService.translate("水");
+        TranslationResponseDto response =
+                translationService.translate("水", SpeakerGenderEnum.MALE);
 
         assertThat(response.fromCache()).isFalse();
         assertThat(response.thaiText()).isEqualTo("น้ำ");
 
         // ★ 音檔是 null，但翻譯結果完整回傳了
-        assertThat(response.audioUrl()).isNull();
+        assertThat(response.thaiAudioUrl()).isNull();
         assertThat(response.segments()).hasSize(1);
 
         // 而且照樣存進資料庫 —— 沒有音檔不代表這次查詢不值得快取
@@ -246,96 +253,234 @@ class TranslationServiceTest {
     @Test
     @DisplayName("模型回報無法翻譯時應拋出錯誤，且不得寫入資料庫")
     void shouldRejectUntranslatableInputAndNotPersist() {
-        when(translationQueryRepository.findByKey("嘎逼", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
-        when(vocabularyRepository.findByChineseText("嘎逼")).thenReturn(List.of());
-        when(translationClient.translate("嘎逼", TranslationDirectionEnum.ZH_TO_TH, null))
+        when(translationQueryRepository.findByKey(
+                "嘎逼", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(Optional.empty());
+        when(translationClient.translate(
+                "嘎逼", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(TranslationResult.untranslatable("gpt-test", 95L, 8L));
 
-        assertThatThrownBy(() -> translationService.translate("嘎逼"))
+        assertThatThrownBy(() -> translationService.translate("嘎逼", SpeakerGenderEnum.MALE))
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(ErrorCodeEnum.INPUT_UNSUPPORTED_CONTENT);
 
-        // ★ 這三行是重點：什麼都不准留下來
+        // ★ 什麼都不准留下來
         verify(translationPersistenceService, never()).persist(any(), any(), any(), any());
         // 也不該為了一個翻不出來的東西去生語音
-        verify(speechClient, never()).synthesize(anyString(), any());
+        verify(audioAssetService, never()).resolveAudioUrl(anyString(), any());
     }
 
     /*
-     * ═══ 測試八：兩個請求同時查同一句話 ═════════════════════════════════
+     * ═══ 測試七：兩個請求同時查同一句話 ═════════════════════════════════
      *
      * 情境：你連按兩次查詢，或兩個人同時查「水」。
      *
      *     請求 A 查快取 → 沒有 → 去翻譯（要好幾秒）
      *     請求 B 查快取 → 沒有 → 也去翻譯     ← 此時 A 還沒寫完
      *     請求 A 寫入 → 成功
-     *     請求 B 寫入 → ★ 撞到 source_text 的唯一鍵 ★
+     *     請求 B 寫入 → ★ 撞到唯一鍵 ★
      *
      * 修正前：B 會爆炸，使用者看到 500「系統發生非預期錯誤」。
      * 修正後：B 知道「有人比我快」，改去讀 A 寫好的那筆回傳。
-     *         使用者完全不會發現發生過這件事。
-     *
-     * 這個測試用兩段式的假動作模擬時間差：
-     *     第一次查快取 → 空的（那時 A 還沒寫完）
-     *     第二次查快取 → 有了（A 已經寫完）
      */
     @Test
     @DisplayName("同時寫入撞唯一鍵時應改讀既有資料，不可讓使用者看到錯誤")
     void shouldFallBackToExistingRowOnConcurrentWrite() {
         // 第一次回空的、第二次回有資料 —— 模擬「另一個請求在這中間寫進去了」
-        when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null))
+        when(translationQueryRepository.findByKey(
+                "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(new TranslationQueryDto(
-                        88L, "水", TranslationDirectionEnum.ZH_TO_TH, null,
+                        88L, "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
                         "水", "น้ำ", "náam")));
         when(translationSegmentRepository.findByQueryIdOrderBySeqNo(88L))
-                .thenReturn(List.of(new TranslationSegmentDto(1, "水", "น้ำ", "náam")));
+                .thenReturn(List.of(new TranslationSegmentDto(
+                        1, "水", "น้ำ", "náam", null, null)));
         when(vocabularyRepository.findByChineseText("水")).thenReturn(List.of());
-        when(translationClient.translate("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(new TranslationResult(
-                "水", "น้ำ", "náam",
-                List.of(new TranslationWord("水", "น้ำ", "náam")),
-                List.of(),
-                "gpt-test", 10L, 5L, true));
-        when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.of("xyz.mp3"));
+        when(translationClient.translate(
+                "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(singleWordResult());
+        when(audioAssetService.resolveAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/xyz.mp3"));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/xyz.mp3"));
 
         // 寫入時撞唯一鍵
         when(translationPersistenceService.persist(any(), any(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"));
 
-        TranslationResponseDto response = translationService.translate("水");
+        TranslationResponseDto response =
+                translationService.translate("水", SpeakerGenderEnum.MALE);
 
         // ★ 沒有丟出例外，而且回的是別人寫好的那筆
         assertThat(response.thaiText()).isEqualTo("น้ำ");
-        // 音檔已改由 audio_asset 管理，快取路徑的音檔在 Task 13 才接回來。
-        assertThat(response.audioUrl()).isNull();
         assertThat(response.fromCache()).isTrue();
         assertThat(response.segments()).hasSize(1);
     }
 
     /*
-     * ═══ 測試七：單字庫已經有的詞，不必再問 OpenAI ══════════════════════
+     * ═══ 測試八 ★★ 這個測試是整個改版的命脈 ★★ ═══════════════════════
      *
-     * 使用者查「水」，而「水」之前已經從別的句子沉澱進單字庫了。
-     * 這時本地就有答案，直接用，省下一次翻譯費用。
+     * 舊的程式碼有一段「省錢捷徑」：整段輸入剛好是單字庫裡有的詞時，
+     * 直接拿單字庫的答案回傳，不呼叫 AI。
      *
-     * 注意語音還是要生 —— 單字庫沒有存音檔（只有查詢快取有）。
+     * 那段捷徑會讓多重說法功能完全失效：
+     *
+     *   第 1 天  你查「我想喝酒」→「我 → ฉัน」被沉澱進單字庫
+     *   第 3 天  你單獨查「我」  → 捷徑看到單字庫有「我」，直接回 ฉัน
+     *                            → 永遠不會去問 AI 要 ผม 和 กู
+     *
+     * 這個測試把那條捷徑釘死：單字庫裡明明有「我」，仍然必須呼叫 AI。
+     *
+     * 如果有人日後為了「省錢」把捷徑加回來，這裡會亮紅燈。
      */
     @Test
-    @DisplayName("單字庫已有該詞時應直接使用，不呼叫翻譯服務")
-    void shouldUseVocabularyInsteadOfCallingTranslation() {
-        when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
-        when(vocabularyRepository.findByChineseText("水"))
+    @DisplayName("單字庫已有該詞時仍必須呼叫翻譯服務")
+    void shouldStillCallTranslationClientWhenVocabularyAlreadyHasTheWord() {
+        when(translationQueryRepository.findByKey(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(Optional.empty());
+        // 單字庫裡明明已經有「我」了
+        when(vocabularyRepository.findByChineseText("我"))
                 .thenReturn(List.of(new VocabularyDto(
-                        7L, "水", "น้ำ", "náam", null, null, null)));
-        when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.of("b1c2d3.mp3"));
+                        7L, "我", "ฉัน", "chǎn", null, null, null)));
+        when(translationClient.translate(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(singleWordResultWithVariants());
+        when(audioAssetService.resolveAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/a1b2c3.mp3"));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.empty());
 
-        TranslationResponseDto response = translationService.translate("水");
+        TranslationResponseDto response =
+                translationService.translate("我", SpeakerGenderEnum.MALE);
 
-        assertThat(response.thaiText()).isEqualTo("น้ำ");
-        assertThat(response.audioUrl()).isEqualTo("/audio/b1c2d3.mp3");
+        // ★ 重點：AI 一定要被呼叫，不可以被單字庫擋下來
+        verify(translationClient).translate(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
+        assertThat(response.variants()).hasSize(3);
+    }
 
-        // ★ 重點：沒有花翻譯的錢
+    /*
+     * ═══ 測試九：查快取時性別必須一起帶入 ═══════════════════════════════
+     *
+     * ★ 決策 7：同一句話的男版與女版要分開查快取。
+     *   共用的話，你切到女生會看到男生的講法。
+     */
+    @Test
+    @DisplayName("查快取時性別必須一起帶入")
+    void shouldIncludeGenderWhenLookingUpCache() {
+        when(translationQueryRepository.findByKey(
+                "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.FEMALE))
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH,
+                        SpeakerGenderEnum.FEMALE, "我想喝酒",
+                        "ฉันอยากดื่มเหล้าค่ะ", "chǎn yàak dùuem lâo khâ")));
+        when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
+                .thenReturn(List.of());
+        when(vocabularyRepository.findByChineseText("我想喝酒")).thenReturn(List.of());
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/a1b2c3.mp3"));
+
+        TranslationResponseDto response =
+                translationService.translate("我想喝酒", SpeakerGenderEnum.FEMALE);
+
+        assertThat(response.fromCache()).isTrue();
         verify(translationClient, never()).translate(anyString(), any(), any());
+    }
+
+    /*
+     * ═══ 測試十：輸入泰文時性別要被忽略 ═════════════════════════════════
+     *
+     * 泰翻中不分性別。就算前端照樣送了性別過來，也要存成 null，
+     * 否則同一句泰文會因為性別不同被翻譯兩次，白花一次錢。
+     */
+    @Test
+    @DisplayName("輸入泰文時性別應被忽略並存為 null")
+    void shouldIgnoreGenderWhenInputIsThai() {
+        when(translationQueryRepository.findByKey(
+                "ผมอยากดื่มเหล้า", TranslationDirectionEnum.TH_TO_ZH, null))
+                .thenReturn(Optional.empty());
+        when(translationClient.translate(
+                "ผมอยากดื่มเหล้า", TranslationDirectionEnum.TH_TO_ZH, null))
+                .thenReturn(thaiToChineseResult());
+        when(audioAssetService.resolveAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/a1b2c3.mp3"));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.empty());
+
+        translationService.translate("ผมอยากดื่มเหล้า", SpeakerGenderEnum.MALE);
+
+        verify(translationClient).translate(
+                "ผมอยากดื่มเหล้า", TranslationDirectionEnum.TH_TO_ZH, null);
+        verify(translationPersistenceService).persist(
+                eq("ผมอยากดื่มเหล้า"), eq(TranslationDirectionEnum.TH_TO_ZH),
+                eq(null), any(TranslationResult.class));
+    }
+
+    /*
+     * ═══ 測試十一：不得自動產生中文音檔 ═════════════════════════════════
+     *
+     * ★ 決策 14：中文音檔不自動產生。
+     *   自動產生的話，每次查詢都要多打一次 OpenAI、多等一兩秒，
+     *   而唯一的使用者根本不需要聽中文。
+     *
+     *   機制本身是完整的（把 auto-generate 改成 [TH, ZH] 就會開始生），
+     *   這裡守的是「預設不要生」。
+     */
+    @Test
+    @DisplayName("不得自動產生中文音檔")
+    void shouldNotAutoGenerateChineseAudio() {
+        when(translationQueryRepository.findByKey(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(Optional.empty());
+        when(translationClient.translate(
+                "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(singleWordResultWithVariants());
+        when(audioAssetService.resolveAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/a1b2c3.mp3"));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.empty());
+
+        TranslationResponseDto response =
+                translationService.translate("我", SpeakerGenderEnum.MALE);
+
+        assertThat(response.chineseAudioUrl()).isNull();
+        verify(audioAssetService, never())
+                .resolveAudioUrl(anyString(), eq(SpeechLanguageEnum.ZH));
+    }
+
+    /** 一個沒有多重說法的單字結果（模擬「大部分的詞就只有一種說法」）。 */
+    private TranslationResult singleWordResult() {
+        return new TranslationResult(
+                "水", "น้ำ", "náam",
+                List.of(new TranslationWord("水", "น้ำ", "náam")),
+                List.of(),
+                "gpt-test", 10L, 5L, true);
+    }
+
+    /** 「我」的三種說法。 */
+    private TranslationResult singleWordResultWithVariants() {
+        return new TranslationResult(
+                "我", "ผม", "pǒm",
+                List.of(new TranslationWord("我", "ผม", "pǒm")),
+                List.of(
+                        new TranslationVariant("ผม", "pǒm",
+                                GenderUsageEnum.MALE, PolitenessEnum.FORMAL, "男生自稱"),
+                        new TranslationVariant("ฉัน", "chǎn",
+                                GenderUsageEnum.FEMALE, PolitenessEnum.FORMAL, "女生自稱"),
+                        new TranslationVariant("กู", "guu",
+                                GenderUsageEnum.BOTH, PolitenessEnum.RUDE, "很不客氣")),
+                "gpt-test", 100L, 50L, true);
+    }
+
+    /** 泰翻中的結果：chineseText 是翻出來的，thaiText 是使用者的輸入。 */
+    private TranslationResult thaiToChineseResult() {
+        return new TranslationResult(
+                "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo",
+                List.of(new TranslationWord("我", "ผม", "pǒm")),
+                List.of(),
+                "gpt-test", 80L, 40L, true);
     }
 }

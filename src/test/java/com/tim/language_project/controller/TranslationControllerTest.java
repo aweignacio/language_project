@@ -86,6 +86,8 @@ package com.tim.language_project.controller;
 import com.tim.language_project.dto.response.TranslationResponseDto;
 import com.tim.language_project.dto.response.TranslationSegmentDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
+import com.tim.language_project.enums.SpeakerGenderEnum;
+import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.exception.BusinessException;
 import com.tim.language_project.service.TranslationService;
 import org.junit.jupiter.api.DisplayName;
@@ -99,7 +101,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -123,23 +127,30 @@ class TranslationControllerTest {
     @Test
     @DisplayName("查詢成功應回傳翻譯內容與逐詞對照")
     void shouldReturnTranslation() throws Exception {
-        when(translationService.translate("我想喝酒")).thenReturn(new TranslationResponseDto(
-                "我想喝酒", "ฉันอยากดื่มเหล้า", "chǎn yàak dùuem lâo",
-                "/audio/a3f9c2.mp3", true,
-                List.of(new TranslationSegmentDto(1, "我", "ฉัน", "chǎn"))));
+        when(translationService.translate("我想喝酒", SpeakerGenderEnum.MALE))
+                .thenReturn(new TranslationResponseDto(
+                        "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp",
+                        "/audio/th/a3f9c2.mp3", null, true,
+                        List.of(new TranslationSegmentDto(
+                                1, "我", "ผม", "pǒm", null, null)),
+                        List.of()));
 
-        mockMvc.perform(postTranslation("我想喝酒"))
+        mockMvc.perform(postTranslation("我想喝酒", "MALE"))
                 // 快取命中 → 沒有產生新東西 → 200
                 .andExpect(status().isOk())
                 // 我主張：泰文原封不動傳出去，沒有變成亂碼
-                .andExpect(jsonPath("$.thaiText").value("ฉันอยากดื่มเหล้า"))
-                .andExpect(jsonPath("$.romanization").value("chǎn yàak dùuem lâo"))
+                .andExpect(jsonPath("$.thaiText").value("ผมอยากดื่มเหล้าครับ"))
+                .andExpect(jsonPath("$.romanization").value("pǒm yàak dùuem lâo khráp"))
+                // 我主張：方向與性別有跟著回去，前端要靠它們排版
+                .andExpect(jsonPath("$.direction").value("ZH_TO_TH"))
+                .andExpect(jsonPath("$.gender").value("MALE"))
                 // 我主張：音檔是「網址」不是檔名，前端才能直接放進 <audio src>
-                .andExpect(jsonPath("$.audioUrl").value("/audio/a3f9c2.mp3"))
+                .andExpect(jsonPath("$.thaiAudioUrl").value("/audio/th/a3f9c2.mp3"))
                 .andExpect(jsonPath("$.fromCache").value(true))
                 // 我主張：逐詞對照有跟著出去，而且欄位名稱正確
                 .andExpect(jsonPath("$.segments[0].chineseText").value("我"))
-                .andExpect(jsonPath("$.segments[0].thaiText").value("ฉัน"));
+                .andExpect(jsonPath("$.segments[0].thaiText").value("ผม"));
     }
 
     /*
@@ -154,15 +165,19 @@ class TranslationControllerTest {
     @Test
     @DisplayName("新建立的查詢應回傳 201")
     void shouldReturnCreatedForNewTranslation() throws Exception {
-        when(translationService.translate("水")).thenReturn(new TranslationResponseDto(
-                "水", "น้ำ", "náam", null, false,
-                List.of(new TranslationSegmentDto(1, "水", "น้ำ", "náam"))));
+        when(translationService.translate("水", SpeakerGenderEnum.MALE))
+                .thenReturn(new TranslationResponseDto(
+                        "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "水", "น้ำ", "náam", null, null, false,
+                        List.of(new TranslationSegmentDto(
+                                1, "水", "น้ำ", "náam", null, null)),
+                        List.of()));
 
-        mockMvc.perform(postTranslation("水"))
+        mockMvc.perform(postTranslation("水", "MALE"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.fromCache").value(false))
-                // 語音失敗時 audioUrl 是 null，前端據此不顯示播放鍵
-                .andExpect(jsonPath("$.audioUrl").doesNotExist());
+                // 語音失敗時 thaiAudioUrl 是 null，前端據此顯示成灰色的鍵
+                .andExpect(jsonPath("$.thaiAudioUrl").doesNotExist());
     }
 
     /*
@@ -177,14 +192,38 @@ class TranslationControllerTest {
     @Test
     @DisplayName("Service 拋出錯誤時應回傳統一的錯誤格式")
     void shouldReturnUniformErrorPayload() throws Exception {
-        when(translationService.translate(anyString()))
+        when(translationService.translate(anyString(), any()))
                 .thenThrow(new BusinessException(ErrorCodeEnum.INPUT_TOO_LONG));
 
-        mockMvc.perform(postTranslation("字".repeat(101)))
+        mockMvc.perform(postTranslation("字".repeat(101), "MALE"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(ErrorCodeEnum.INPUT_TOO_LONG.name()))
                 .andExpect(jsonPath("$.message").value(ErrorCodeEnum.INPUT_TOO_LONG.getMessage()))
                 .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    /*
+     * ═══ 測試四：性別要原樣傳給 Service ═════════════════════════════════
+     *
+     * gender 是 2026-08-14 新增的欄位。Controller 只做一件事：把它傳下去。
+     *
+     * ★ 傳丟了不會有任何錯誤訊息 —— Service 會收到 null，
+     *   然後所有查詢都變成「沒有性別」的版本，男女看到的東西一模一樣。
+     *   這種錯誤只有 verify 抓得到。
+     */
+    @Test
+    @DisplayName("性別應原樣傳給 Service")
+    void shouldPassGenderToService() throws Exception {
+        when(translationService.translate("我", SpeakerGenderEnum.FEMALE))
+                .thenReturn(new TranslationResponseDto(
+                        "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.FEMALE,
+                        "我", "ฉัน", "chǎn", null, null, false,
+                        List.of(), List.of()));
+
+        mockMvc.perform(postTranslation("我", "FEMALE"))
+                .andExpect(status().isCreated());
+
+        verify(translationService).translate("我", SpeakerGenderEnum.FEMALE);
     }
 
     /*
@@ -197,8 +236,9 @@ class TranslationControllerTest {
      *   明確指定 UTF-8 轉成位元組，就不會有這個問題。
      */
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
-    postTranslation(String sourceText) {
-        String requestBody = "{\"sourceText\":\"" + sourceText + "\"}";
+    postTranslation(String sourceText, String gender) {
+        String requestBody =
+                "{\"sourceText\":\"" + sourceText + "\",\"gender\":\"" + gender + "\"}";
 
         return post("/api/v1/translations")
                 .contentType(MediaType.APPLICATION_JSON)
