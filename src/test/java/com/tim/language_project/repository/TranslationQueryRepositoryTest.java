@@ -11,7 +11,20 @@ package com.tim.language_project.repository;
  *  會把結果存進這張表。下次有人再輸入同一句，就直接從這裡撈出來，
  *  不用再花錢問 OpenAI 一次。
  *
- *  這支測試要確認的是：存進去再讀出來，內容不會壞掉。
+ *  這支測試要確認兩件事：存進去再讀出來內容不會壞掉，以及快取的鑰匙是對的。
+ *
+ * ── ★ 2026-08-14 改版：快取的鑰匙從一欄變成三欄 ─────────────────────────
+ *
+ *      以前  source_text
+ *      現在  source_text ＋ direction ＋ gender
+ *
+ *    為什麼要多兩欄：同一句「我想喝酒」，男生講出來是 ผมอยากดื่มเหล้าครับ，
+ *    女生講出來是 ฉันอยากดื่มเหล้าค่ะ —— 那是兩句不同的泰文，
+ *    共用一筆快取的話，切換性別會看到另一個性別的講法。
+ *
+ *    同時，「音檔為 null 也要能存」那個舊測試被刪掉了 ——
+ *    audio_file 欄位已經不在這張表上，音檔改由 audio_asset 統一管理，
+ *    對應的測試搬到了 AudioAssetRepositoryTest。
  *
  *  ※ 測試的基本概念（什麼是 @Test、assertThat、三段式結構、交易回滾……）
  *    寫在同資料夾的 VocabularyRepositoryTest.java 檔頭與註解裡，
@@ -20,15 +33,19 @@ package com.tim.language_project.repository;
 
 import com.tim.language_project.dto.response.TranslationQueryDto;
 import com.tim.language_project.entity.TranslationQuery;
+import com.tim.language_project.enums.SpeakerGenderEnum;
+import com.tim.language_project.enums.TranslationDirectionEnum;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /*
  * 兩張貼在整個類別上的「貼紙」，影響裡面所有測試：
@@ -93,11 +110,13 @@ class TranslationQueryRepositoryTest {
          * 拼音看起來像英文，很容易讓人以為用 VARCHAR 就夠了 ——
          * 但只要有一個聲調符號，就會壞掉。所以拼音也必須驗。
          */
-        TranslationQuery query = new TranslationQuery();
-        query.setSourceText("測試勿刪我想喝酒");
-        query.setThaiText("ฉันอยากดื่มเหล้า");
-        query.setRomanization("chǎn yàak dùuem lâo");
-        query.setAudioFile("a3f9c2.mp3");
+        TranslationQuery query = newQuery(
+                "測試勿刪我想喝酒",
+                TranslationDirectionEnum.ZH_TO_TH,
+                SpeakerGenderEnum.FEMALE,
+                "測試勿刪我想喝酒",
+                "ฉันอยากดื่มเหล้า",
+                "chǎn yàak dùuem lâo");
 
         // saveAndFlush 的 flush 是關鍵：
         // 強迫 JPA「現在就把 INSERT 真的送進資料庫」，而不是留在記憶體裡。
@@ -111,8 +130,10 @@ class TranslationQueryRepositoryTest {
          * 用中文原文去查快取。這正是正式流程每次查詢的第一個動作：
          * 「這句話以前有人查過嗎？」有的話就不用花錢問 OpenAI 了。
          */
-        Optional<TranslationQueryDto> found =
-                translationQueryRepository.findBySourceText("測試勿刪我想喝酒");
+        Optional<TranslationQueryDto> found = translationQueryRepository.findByKey(
+                "測試勿刪我想喝酒",
+                TranslationDirectionEnum.ZH_TO_TH,
+                SpeakerGenderEnum.FEMALE);
 
         /*
          * ── 第三段：檢查結果（Assert）──
@@ -138,53 +159,93 @@ class TranslationQueryRepositoryTest {
     }
 
     /*
-     * ═══ 測試二：音檔是 null 的時候也要能正常運作 ═══════════════════════
+     * ═══ 測試二：同一句話的男版與女版要能各存一筆 ═══════════════════════
      *
-     * 為什麼要特別測 null？
+     * ★ 決策 7 的第一半：同一句話的男版與女版，泰文真的不一樣，必須各存一筆。
      *
-     * 因為這是這個專案刻意設計的行為：
-     * 語音合成（把泰文轉成 mp3）是另一個外部服務，它可能會失敗 ——
-     * 網路斷線、額度用完、存檔失敗等等。
+     *     男：ผมอยากดื่มเหล้าครับ    自稱 ผม、句尾 ครับ
+     *     女：ฉันอยากดื่มเหล้าค่ะ    自稱 ฉัน、句尾 ค่ะ
      *
-     * 設計上決定：語音失敗「不可以」害整個查詢跟著失敗。
-     * 使用者還是要看得到泰文和拼音，只是畫面上不會出現播放按鈕而已。
-     *
-     * 所以 audio_file 這個欄位必須允許 null。
-     * 這支測試就是在確認「存 null 不會爆、讀回來也還是 null」。
-     *
-     * 這是測試很典型的一種用途：
-     * 除了驗「正常情況會成功」，也要驗「不正常的情況會好好被處理」。
+     *   這條唯一鍵如果只用 source_text，男版會把女版蓋掉（或反過來），
+     *   使用者切換性別後看到的是另一個性別的講法。
      */
     @Test
-    @DisplayName("音檔為 null 時仍可正常寫入與讀取")
-    void shouldAllowNullAudioFile() {
-        // ── 第一段：準備資料 ──
-        // 這次只有單一個詞「水」，而且 audioFile 明確設成 null，
-        // 模擬「翻譯成功，但語音合成失敗」的情況。
+    @DisplayName("同一句話的男版與女版可各存一筆")
+    void shouldAllowSameSourceTextWithDifferentGender() {
+        translationQueryRepository.saveAndFlush(newQuery(
+                "測試勿刪我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                "測試勿刪我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp"));
+
+        translationQueryRepository.saveAndFlush(newQuery(
+                "測試勿刪我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.FEMALE,
+                "測試勿刪我想喝酒", "ฉันอยากดื่มเหล้าค่ะ", "chǎn yàak dùuem lâo khâ"));
+
+        assertThat(translationQueryRepository.findByKey(
+                "測試勿刪我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .isPresent();
+        assertThat(translationQueryRepository.findByKey(
+                "測試勿刪我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.FEMALE))
+                .isPresent();
+    }
+
+    /*
+     * ═══ 測試三：同一句話同一性別只能有一筆 ═════════════════════════════
+     *
+     * 唯一鍵的另一半。少了它，同一句話會被重複寫入好幾筆，
+     * 每一筆都是付過錢的 —— 而快取也會因為撈到多筆而出問題。
+     */
+    @Test
+    @DisplayName("同一句話同一性別不可重複寫入")
+    void shouldRejectDuplicateKey() {
+        translationQueryRepository.saveAndFlush(newQuery(
+                "測試勿刪我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                "測試勿刪我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp"));
+
+        assertThatThrownBy(() -> translationQueryRepository.saveAndFlush(newQuery(
+                "測試勿刪我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                "測試勿刪我想喝酒", "ผมอยากทานเหล้าครับ", "pǒm yàak thaan lâo khráp")))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    /*
+     * ═══ 測試四：泰翻中的性別是 null，但仍然要唯一 ══════════════════════
+     *
+     * ★ 泰翻中沒有性別概念，gender 存 null。
+     *   SQL Server 的 UNIQUE 把 null 當成一個值來比對，
+     *   所以「同一句泰文只會有一筆」這件事仍然成立。
+     *
+     *   這個測試就是在確認那個行為真的如我們所想 ——
+     *   如果哪天換了資料庫（有些資料庫把 null 視為「彼此都不相等」），
+     *   同一句泰文就會被重複寫入，而且不會有任何錯誤。
+     */
+    @Test
+    @DisplayName("泰翻中的性別為 null 時仍然唯一")
+    void shouldEnforceUniquenessWhenGenderIsNull() {
+        translationQueryRepository.saveAndFlush(newQuery(
+                "測試勿刪ผมอยากดื่มเหล้า", TranslationDirectionEnum.TH_TO_ZH, null,
+                "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo"));
+
+        assertThatThrownBy(() -> translationQueryRepository.saveAndFlush(newQuery(
+                "測試勿刪ผมอยากดื่มเหล้า", TranslationDirectionEnum.TH_TO_ZH, null,
+                "我要喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo")))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    private TranslationQuery newQuery(String sourceText,
+                                      TranslationDirectionEnum direction,
+                                      SpeakerGenderEnum gender,
+                                      String chineseText,
+                                      String thaiText,
+                                      String romanization) {
         TranslationQuery query = new TranslationQuery();
-        query.setSourceText("測試勿刪水");
-        query.setThaiText("น้ำ");
-        query.setRomanization("náam");
-        query.setAudioFile(null);
+        query.setSourceText(sourceText);
+        query.setDirection(direction);
+        query.setGender(gender);
+        query.setChineseText(chineseText);
+        query.setThaiText(thaiText);
+        query.setRomanization(romanization);
 
-        // 如果資料庫的 audio_file 欄位被設成 NOT NULL，
-        // 這一行就會直接拋出例外，測試失敗 —— 這正是我們想擋下的錯誤。
-        translationQueryRepository.saveAndFlush(query);
-
-        // ── 第二段：執行要測的動作 ──
-        Optional<TranslationQueryDto> found = translationQueryRepository.findBySourceText("測試勿刪水");
-
-        // ── 第三段：檢查結果 ──
-
-        // 我主張：即使沒有音檔，這筆查詢紀錄還是好好地存下來了
-        assertThat(found).isPresent();
-
-        // 我主張：音檔欄位讀回來仍然是 null，
-        // 而不是被轉成空字串 "" 之類的東西。
-        //
-        // 這個差別會影響前端：程式碼是用 if (payload.audioUrl) 判斷要不要
-        // 顯示播放按鈕。如果這裡變成空字串，判斷邏輯就得跟著改。
-        assertThat(found.get().audioFile()).isNull();
+        return query;
     }
 }
 

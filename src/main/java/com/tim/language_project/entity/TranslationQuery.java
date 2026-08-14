@@ -1,7 +1,11 @@
 package com.tim.language_project.entity;
 
+import com.tim.language_project.enums.SpeakerGenderEnum;
+import com.tim.language_project.enums.TranslationDirectionEnum;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -13,8 +17,8 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * 翻譯結果的快取，以使用者輸入的原始文字當作查詢的鍵。
- * 整個專案只有這張表擁有音檔。
+ * 翻譯結果的快取。查詢的鍵是「輸入原文＋方向＋性別」三者的組合。
+ * 音檔不在這裡 —— 全站的音檔一律由 audio_asset 持有。
  */
 @Entity
 @Table(name = "translation_query")
@@ -28,22 +32,28 @@ public class TranslationQuery {
     @Column(name = "id")
     private Long id;
 
-    /** 使用者輸入的中文原文，寫入前會先去掉頭尾空白。不可重複。 */
+    /** 使用者輸入的原文，寫入前會先去掉頭尾空白。 */
     @Column(name = "source_text", columnDefinition = "NVARCHAR(100)", nullable = false)
     private String sourceText;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "direction", length = 20, nullable = false)
+    private TranslationDirectionEnum direction;
+
+    /** 泰翻中沒有性別概念，該方向為 null。 */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gender", length = 10)
+    private SpeakerGenderEnum gender;
+
+    /** 這句話的中文面。sourceText 必定與這一欄或 thaiText 其中之一相同。 */
+    @Column(name = "chinese_text", columnDefinition = "NVARCHAR(500)", nullable = false)
+    private String chineseText;
 
     @Column(name = "thai_text", columnDefinition = "NVARCHAR(500)", nullable = false)
     private String thaiText;
 
     @Column(name = "romanization", columnDefinition = "NVARCHAR(500)", nullable = false)
     private String romanization;
-
-    /**
-     * 產生出來的音檔檔名。語音合成失敗時是 null ——
-     * 翻譯結果照樣回傳，只是前端不顯示播放鍵。
-     */
-    @Column(name = "audio_file", length = 100)
-    private String audioFile;
 
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;

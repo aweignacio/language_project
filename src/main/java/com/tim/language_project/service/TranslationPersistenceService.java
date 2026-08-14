@@ -75,6 +75,7 @@ import com.tim.language_project.client.model.TranslationWord;
 import com.tim.language_project.entity.TranslationQuery;
 import com.tim.language_project.entity.TranslationSegment;
 import com.tim.language_project.entity.Vocabulary;
+import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.enums.VocabularySourceTypeEnum;
 import com.tim.language_project.repository.TranslationQueryRepository;
 import com.tim.language_project.repository.TranslationSegmentRepository;
@@ -108,10 +109,12 @@ public class TranslationPersistenceService {
     @Transactional
     public Long persist(String sourceText, TranslationResult result, String audioFile) {
         TranslationQuery query = new TranslationQuery();
+        // 這幾行是暫時的：方向、性別、中文面與多重說法在 Task 12 才會正式接進來。
         query.setSourceText(sourceText);
+        query.setDirection(TranslationDirectionEnum.ZH_TO_TH);
+        query.setChineseText(sourceText);
         query.setThaiText(result.thaiText());
         query.setRomanization(result.romanization());
-        query.setAudioFile(audioFile);
 
         // saveAndFlush 是為了立刻拿到資料庫產生的 id，下一步當外鍵用。
         TranslationQuery savedQuery = translationQueryRepository.saveAndFlush(query);

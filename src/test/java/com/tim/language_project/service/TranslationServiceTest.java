@@ -37,7 +37,7 @@ package com.tim.language_project.service;
  *
  *  ● 布置劇本
  *
- *        when(translationQueryRepository.findBySourceText("我想喝酒"))
+ *        when(translationQueryRepository.findByKey("我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null))
  *                .thenReturn(Optional.of(快取資料));
  *
  *  ● 執行
@@ -79,6 +79,7 @@ import com.tim.language_project.dto.response.TranslationSegmentDto;
 import com.tim.language_project.dto.response.VocabularyDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
 import com.tim.language_project.enums.SpeechLanguageEnum;
+import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.exception.BusinessException;
 import com.tim.language_project.repository.TranslationQueryRepository;
 import com.tim.language_project.repository.TranslationSegmentRepository;
@@ -133,9 +134,10 @@ class TranslationServiceTest {
     @Test
     @DisplayName("快取命中時不得呼叫外部服務")
     void shouldNotCallExternalServicesWhenCacheHits() {
-        when(translationQueryRepository.findBySourceText("我想喝酒"))
+        when(translationQueryRepository.findByKey("我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null))
                 .thenReturn(Optional.of(new TranslationQueryDto(
-                        1L, "我想喝酒", "ฉันอยากดื่มเหล้า", "chǎn yàak dùuem lâo", "a3f9c2.mp3")));
+                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null,
+                        "我想喝酒", "ฉันอยากดื่มเหล้า", "chǎn yàak dùuem lâo")));
         when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
                 .thenReturn(List.of(new TranslationSegmentDto(1, "我", "ฉัน", "chǎn")));
 
@@ -161,9 +163,10 @@ class TranslationServiceTest {
     @Test
     @DisplayName("輸入前後空白應去除後再查快取")
     void shouldTrimInputBeforeLookup() {
-        when(translationQueryRepository.findBySourceText("我想喝酒"))
+        when(translationQueryRepository.findByKey("我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null))
                 .thenReturn(Optional.of(new TranslationQueryDto(
-                        1L, "我想喝酒", "ฉันอยากดื่มเหล้า", "chǎn", null)));
+                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, null,
+                        "我想喝酒", "ฉันอยากดื่มเหล้า", "chǎn")));
         when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
                 .thenReturn(List.of());
 
@@ -184,7 +187,7 @@ class TranslationServiceTest {
                 .isEqualTo(ErrorCodeEnum.INPUT_REQUIRED);
 
         // 連查資料庫都不必
-        verify(translationQueryRepository, never()).findBySourceText(anyString());
+        verify(translationQueryRepository, never()).findByKey(anyString(), any(), any());
     }
 
     /*
@@ -209,7 +212,7 @@ class TranslationServiceTest {
     @Test
     @DisplayName("語音失敗時仍應回傳翻譯結果，音檔為 null")
     void shouldReturnTranslationWhenSpeechFails() {
-        when(translationQueryRepository.findBySourceText("水")).thenReturn(Optional.empty());
+        when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
         when(vocabularyRepository.findByChineseText("水")).thenReturn(Optional.empty());
         when(translationClient.translate("水")).thenReturn(new TranslationResult(
                 "น้ำ", "náam",
@@ -242,7 +245,7 @@ class TranslationServiceTest {
     @Test
     @DisplayName("模型回報無法翻譯時應拋出錯誤，且不得寫入資料庫")
     void shouldRejectUntranslatableInputAndNotPersist() {
-        when(translationQueryRepository.findBySourceText("嘎逼")).thenReturn(Optional.empty());
+        when(translationQueryRepository.findByKey("嘎逼", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
         when(vocabularyRepository.findByChineseText("嘎逼")).thenReturn(Optional.empty());
         when(translationClient.translate("嘎逼"))
                 .thenReturn(TranslationResult.untranslatable("gpt-test", 95L, 8L));
@@ -280,10 +283,11 @@ class TranslationServiceTest {
     @DisplayName("同時寫入撞唯一鍵時應改讀既有資料，不可讓使用者看到錯誤")
     void shouldFallBackToExistingRowOnConcurrentWrite() {
         // 第一次回空的、第二次回有資料 —— 模擬「另一個請求在這中間寫進去了」
-        when(translationQueryRepository.findBySourceText("水"))
+        when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(new TranslationQueryDto(
-                        88L, "水", "น้ำ", "náam", "abc123.mp3")));
+                        88L, "水", TranslationDirectionEnum.ZH_TO_TH, null,
+                        "水", "น้ำ", "náam")));
         when(translationSegmentRepository.findByQueryIdOrderBySeqNo(88L))
                 .thenReturn(List.of(new TranslationSegmentDto(1, "水", "น้ำ", "náam")));
         when(vocabularyRepository.findByChineseText("水")).thenReturn(Optional.empty());
@@ -317,7 +321,7 @@ class TranslationServiceTest {
     @Test
     @DisplayName("單字庫已有該詞時應直接使用，不呼叫翻譯服務")
     void shouldUseVocabularyInsteadOfCallingTranslation() {
-        when(translationQueryRepository.findBySourceText("水")).thenReturn(Optional.empty());
+        when(translationQueryRepository.findByKey("水", TranslationDirectionEnum.ZH_TO_TH, null)).thenReturn(Optional.empty());
         when(vocabularyRepository.findByChineseText("水"))
                 .thenReturn(Optional.of(new VocabularyDto(7L, "水", "น้ำ", "náam")));
         when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.of("b1c2d3.mp3"));

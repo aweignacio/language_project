@@ -120,6 +120,7 @@ import com.tim.language_project.dto.response.TranslationSegmentDto;
 import com.tim.language_project.dto.response.VocabularyDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
 import com.tim.language_project.enums.SpeechLanguageEnum;
+import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.exception.BusinessException;
 import com.tim.language_project.repository.TranslationQueryRepository;
 import com.tim.language_project.repository.TranslationSegmentRepository;
@@ -170,7 +171,8 @@ public class TranslationService {
         String sourceText = validateAndNormalize(rawInput);
 
         Optional<TranslationQueryDto> cached =
-                translationQueryRepository.findBySourceText(sourceText);
+                translationQueryRepository.findByKey(
+                    sourceText, TranslationDirectionEnum.ZH_TO_TH, null);
 
         if (cached.isPresent()) {
             return buildCachedResponse(cached.get());
@@ -198,7 +200,8 @@ public class TranslationService {
             // 使用者完全不會發現發生過這件事。
             log.warn("concurrent write detected for the same input, falling back to the cached row");
 
-            return translationQueryRepository.findBySourceText(sourceText)
+            return translationQueryRepository.findByKey(
+                    sourceText, TranslationDirectionEnum.ZH_TO_TH, null)
                     .map(this::buildCachedResponse)
                     .orElseThrow(() -> new BusinessException(
                             ErrorCodeEnum.DATA_PERSIST_FAILED, exception));
@@ -239,7 +242,8 @@ public class TranslationService {
                 cached.sourceText(),
                 cached.thaiText(),
                 cached.romanization(),
-                toAudioUrl(cached.audioFile()),
+                // 音檔改由 audio_asset 管理，這裡暫時給 null，Task 13 會改寫。
+                null,
                 true,
                 segments);
     }
