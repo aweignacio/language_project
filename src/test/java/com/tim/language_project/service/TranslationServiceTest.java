@@ -47,7 +47,7 @@ package com.tim.language_project.service;
  *  ● 檢查
  *
  *        verify(translationClient, never()).translate(anyString());
- *        verify(speechClient, never()).synthesize(anyString());
+ *        verify(speechClient, never()).synthesize(anyString(), any());
  *
  *    ★ 這裡驗的是「沒有做某件事」。
  *      快取命中卻還去呼叫 OpenAI，功能上看不出差別 —— 畫面一樣正確 ——
@@ -78,6 +78,7 @@ import com.tim.language_project.dto.response.TranslationResponseDto;
 import com.tim.language_project.dto.response.TranslationSegmentDto;
 import com.tim.language_project.dto.response.VocabularyDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
+import com.tim.language_project.enums.SpeechLanguageEnum;
 import com.tim.language_project.exception.BusinessException;
 import com.tim.language_project.repository.TranslationQueryRepository;
 import com.tim.language_project.repository.TranslationSegmentRepository;
@@ -148,7 +149,7 @@ class TranslationServiceTest {
 
         // ★ 這兩行是這個測試的重點：一毛錢都不能花
         verify(translationClient, never()).translate(anyString());
-        verify(speechClient, never()).synthesize(anyString());
+        verify(speechClient, never()).synthesize(anyString(), any());
     }
 
     /*
@@ -214,7 +215,7 @@ class TranslationServiceTest {
                 "น้ำ", "náam",
                 List.of(new TranslationWord("水", "น้ำ", "náam")),
                 "gpt-test", 10L, 5L, true));
-        when(speechClient.synthesize("น้ำ")).thenReturn(Optional.empty());
+        when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.empty());
 
         TranslationResponseDto response = translationService.translate("水");
 
@@ -254,7 +255,7 @@ class TranslationServiceTest {
         // ★ 這三行是重點：什麼都不准留下來
         verify(translationPersistenceService, never()).persist(any(), any(), any());
         // 也不該為了一個翻不出來的東西去生語音
-        verify(speechClient, never()).synthesize(anyString());
+        verify(speechClient, never()).synthesize(anyString(), any());
     }
 
     /*
@@ -290,7 +291,7 @@ class TranslationServiceTest {
                 "น้ำ", "náam",
                 List.of(new TranslationWord("水", "น้ำ", "náam")),
                 "gpt-test", 10L, 5L, true));
-        when(speechClient.synthesize("น้ำ")).thenReturn(Optional.of("xyz.mp3"));
+        when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.of("xyz.mp3"));
 
         // 寫入時撞唯一鍵
         when(translationPersistenceService.persist(any(), any(), any()))
@@ -319,7 +320,7 @@ class TranslationServiceTest {
         when(translationQueryRepository.findBySourceText("水")).thenReturn(Optional.empty());
         when(vocabularyRepository.findByChineseText("水"))
                 .thenReturn(Optional.of(new VocabularyDto(7L, "水", "น้ำ", "náam")));
-        when(speechClient.synthesize("น้ำ")).thenReturn(Optional.of("b1c2d3.mp3"));
+        when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.of("b1c2d3.mp3"));
 
         TranslationResponseDto response = translationService.translate("水");
 

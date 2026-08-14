@@ -119,6 +119,7 @@ import com.tim.language_project.dto.response.TranslationResponseDto;
 import com.tim.language_project.dto.response.TranslationSegmentDto;
 import com.tim.language_project.dto.response.VocabularyDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
+import com.tim.language_project.enums.SpeechLanguageEnum;
 import com.tim.language_project.exception.BusinessException;
 import com.tim.language_project.repository.TranslationQueryRepository;
 import com.tim.language_project.repository.TranslationSegmentRepository;
@@ -184,7 +185,10 @@ public class TranslationService {
             throw new BusinessException(ErrorCodeEnum.INPUT_UNSUPPORTED_CONTENT);
         }
 
-        String audioFile = speechClient.synthesize(result.thaiText()).orElse(null);
+        // 暫時補上語言參數讓專案編譯得過，整段流程在 Task 13 會全面改寫。
+        String audioFile = speechClient
+                .synthesize(result.thaiText(), SpeechLanguageEnum.TH)
+                .orElse(null);
 
         try {
             translationPersistenceService.persist(sourceText, result, audioFile);

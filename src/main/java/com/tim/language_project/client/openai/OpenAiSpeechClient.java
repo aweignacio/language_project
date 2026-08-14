@@ -5,7 +5,18 @@ package com.tim.language_project.client.openai;
  *  這個檔案負責什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
- *  把泰文唸出來，存成 mp3 檔，回傳檔名。
+ *  把一段文字唸出來，存成 mp3 檔，回傳它相對於 audio 資料夾的路徑。
+ *
+ *  ★ 2026-08-14 起，唸的不一定是泰文了。
+ *
+ *    以前只唸泰文（使用者要學的是泰文發音），現在中文也會唸 ——
+ *    逐詞對照的每一列都有中泰兩個播放鍵。所以參數從 thaiText 改名成
+ *    speechText，並多收一個「這是什麼語言」。
+ *
+ *    語言決定檔案存去哪個子資料夾，也決定回傳值長什麼樣：
+ *
+ *        synthesize("เหล้า", TH)  →  Optional("th/a3f9c2b81e47.mp3")
+ *        synthesize("酒",    ZH)  →  Optional("zh/b7e1d4a95c22.mp3")
  *
  *  ★ 最重要的一條原則：這裡失敗，絕對不能讓翻譯跟著失敗。
  *
@@ -19,16 +30,19 @@ package com.tim.language_project.client.openai;
  *  流程：接續「我想喝酒」翻譯成功之後
  * ══════════════════════════════════════════════════════════════════════════
  *
- * ── 第 1 步｜Service 拿到翻譯結果，接著要聲音（Task 8）──────────────────
+ * ── 第 1 步｜AudioAssetService 決定「這段文字沒合成過，去合成吧」──────────
  *
- *        Optional<String> audioFile = speechClient.synthesize("ฉันอยากดื่มเหล้า");
- *                                                              ↑ 整句泰文，不是中文
+ *        Optional<String> filePath =
+ *                speechClient.synthesize("ฉันอยากดื่มเหล้า", SpeechLanguageEnum.TH);
  *
- *    注意送進來的是「泰文」。要唸出來的是泰文，中文原文用不到。
+ *    ★ 呼叫的一定是 AudioAssetService，不會有別人。
+ *      那一層負責「先查資料庫，沒有才花錢」；這一層只負責「真的去花錢」，
+ *      進到這個方法就代表錢一定會付出去。繞過那一層直接呼叫這裡，
+ *      等於把省錢機制整個跳過。
  *
  * ── 第 2 步｜先擋掉空字串 ───────────────────────────────────────────────
  *
- *        if (ObjectUtils.isEmpty(thaiText)) return Optional.empty();
+ *        if (ObjectUtils.isEmpty(speechText)) return Optional.empty();
  *
  *    空字串送去 OpenAI 只會浪費一次呼叫。
  *
@@ -46,20 +60,25 @@ package com.tim.language_project.client.openai;
  *    只是回來的不是 JSON 文字而是音訊資料。這些都由 Spring AI 處理，
  *    textToSpeechModel 這個 Bean 是 spring-ai-starter-model-openai 自動生的。
  *
- * ── 第 4 步｜寫進硬碟 ───────────────────────────────────────────────────
+ * ── 第 4 步｜寫進硬碟，依語言分資料夾 ───────────────────────────────────
  *
- *        檔名 = UUID 隨機 12 碼 + ".mp3"    例如 a3f9c2b81e47.mp3
- *        資料夾 = application.yml 的 audio.storage.directory（預設 audio/）
+ *        檔名   = UUID 隨機 12 碼 + ".mp3"     例如 a3f9c2b81e47.mp3
+ *        資料夾 = audio.storage.directory（預設 audio/）＋ 語言的子資料夾
  *
- *        Files.createDirectories(directory);          資料夾不存在就建
- *        Files.write(directory.resolve(fileName), audioBytes);
+ *        泰文 → audio\th\a3f9c2b81e47.mp3    回傳 "th/a3f9c2b81e47.mp3"
+ *        中文 → audio\zh\b7e1d4a95c22.mp3    回傳 "zh/b7e1d4a95c22.mp3"
+ *
+ *    ★ 為什麼要分資料夾？
+ *
+ *      檔名是隨機亂碼，中泰音檔混在一起的話，日後要清理或搬移
+ *      完全分不出哪個是哪個。分了之後光看路徑就知道。
  *
  *    ★ 為什麼檔名要隨機，不用「我想喝酒.mp3」？
  *
  *      使用者的輸入什麼都有可能 —— 空白、斜線、表情符號、超長句子，
  *      這些拿去當檔名會直接出問題（斜線在檔名裡代表資料夾）。
- *      隨機檔名一律安全，而「哪個檔名對應哪一句」記在資料庫的
- *      translation_query.audio_file 欄位裡。
+ *      隨機檔名一律安全，而「哪個檔案對應哪段文字」記在資料庫的
+ *      audio_asset 那張表裡。
  *
  * ── 第 5 步｜記帳 ───────────────────────────────────────────────────────
  *
@@ -73,13 +92,17 @@ package com.tim.language_project.client.openai;
  *      而且語音沒有「輸出用量」的概念（你給多少字、它就唸多少），
  *      所以輸出用量固定傳 0、輸出單價傳 0。
  *
- * ── 第 6 步｜回傳檔名給 Service ─────────────────────────────────────────
+ * ── 第 6 步｜回傳路徑給 AudioAssetService ───────────────────────────────
  *
- *        return Optional.of("a3f9c2b81e47.mp3");
+ *        return Optional.of("th/a3f9c2b81e47.mp3");
  *
- *    Service 把這個檔名存進 translation_query.audio_file，
- *    前端就能用 <audio src="/audio/a3f9c2b81e47.mp3"> 播放它。
- *    那個網址怎麼對應到硬碟資料夾，見 WebMvcConfig。
+ *    ★ 回傳的是「路徑」不是「檔名」—— 前面多了資料夾。
+ *      2026-08-14 以前只回檔名，接手改這裡時要注意這個差別。
+ *
+ *    AudioAssetService 會把這個路徑寫進 audio_asset，
+ *    前端就能用 <audio src="/audio/th/a3f9c2b81e47.mp3"> 播放它。
+ *    那個網址怎麼對應到硬碟資料夾，見 WebMvcConfig
+ *    （它已支援子路徑，不需要為了這次改版異動）。
  *
  * ══════════════════════════════════════════════════════════════════════════
  *  三條失敗路徑，以及各自要不要記帳
@@ -112,6 +135,7 @@ import com.tim.language_project.config.AudioStorageProperties;
 import com.tim.language_project.enums.AiProviderEnum;
 import com.tim.language_project.enums.AiServiceTypeEnum;
 import com.tim.language_project.enums.SpeechFailureReasonEnum;
+import com.tim.language_project.enums.SpeechLanguageEnum;
 import com.tim.language_project.enums.UsageUnitTypeEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.audio.tts.TextToSpeechModel;
@@ -127,7 +151,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * 以 OpenAI 的語音模型把泰文轉成 mp3。
+ * 以 OpenAI 的語音模型把一段文字轉成 mp3，依語言存進 audio 底下的子資料夾。
  * 任何失敗都吞下來回傳空結果，語音問題絕不影響外層的翻譯。
  */
 @Slf4j
@@ -158,15 +182,15 @@ public class OpenAiSpeechClient implements SpeechClient {
     }
 
     @Override
-    public Optional<String> synthesize(String thaiText) {
-        if (ObjectUtils.isEmpty(thaiText)) {
+    public Optional<String> synthesize(String speechText, SpeechLanguageEnum language) {
+        if (ObjectUtils.isEmpty(speechText)) {
             return Optional.empty();
         }
 
         byte[] audioBytes;
 
         try {
-            audioBytes = textToSpeechModel.call(thaiText);
+            audioBytes = textToSpeechModel.call(speechText);
         } catch (Exception exception) {
             // 沒接通就沒有費用，記 0 只是為了留下「這時候失敗過」的痕跡。
             recordFailure(SpeechFailureReasonEnum.CONNECTION_FAILED, 0L, exception);
@@ -175,23 +199,28 @@ public class OpenAiSpeechClient implements SpeechClient {
 
         if (ObjectUtils.isEmpty(audioBytes)) {
             // 接通也回應了，只是內容是空的 —— 這一次已經被收費。
-            recordFailure(SpeechFailureReasonEnum.UNKNOWN, thaiText.length(), null);
+            recordFailure(SpeechFailureReasonEnum.UNKNOWN, speechText.length(), null);
             return Optional.empty();
         }
 
         try {
-            String fileName = newFileName();
-            Path directory = Paths.get(audioStorageProperties.getDirectory());
+            // 相對路徑，例如 th/a1b2c3d4e5f6.mp3。
+            // 前端把它接在 /audio/ 後面就是可以直接播放的網址。
+            String filePath = language.getFolderName() + "/" + newFileName();
+            Path directory = Paths.get(audioStorageProperties.getDirectory())
+                    .resolve(language.getFolderName());
 
             Files.createDirectories(directory);
-            Files.write(directory.resolve(fileName), audioBytes);
+            Files.write(Paths.get(audioStorageProperties.getDirectory()).resolve(filePath),
+                    audioBytes);
 
-            recordUsage(thaiText.length(), true);
+            recordUsage(speechText.length(), true);
 
-            return Optional.of(fileName);
+            return Optional.of(filePath);
         } catch (Exception exception) {
             // 聲音已經拿到了，錢也付了，是我們自己沒存下來。
-            recordFailure(SpeechFailureReasonEnum.FILE_SAVE_FAILED, thaiText.length(), exception);
+            recordFailure(SpeechFailureReasonEnum.FILE_SAVE_FAILED,
+                    speechText.length(), exception);
             return Optional.empty();
         }
     }
@@ -224,6 +253,7 @@ public class OpenAiSpeechClient implements SpeechClient {
 
     /**
      * 隨機檔名，避免使用者輸入的內容（空白、斜線、表情符號）跑進檔名。
+     * 不含資料夾 —— 要放進 th/ 還是 zh/ 由 language 決定。
      */
     private String newFileName() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 12) + ".mp3";

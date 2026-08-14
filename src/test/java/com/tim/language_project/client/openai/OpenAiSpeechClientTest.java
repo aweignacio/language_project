@@ -60,7 +60,21 @@ package com.tim.language_project.client.openai;
  *        檔案內容就是那三個位元組
  *
  * ══════════════════════════════════════════════════════════════════════════
- *  五個測試各自在防什麼
+ *  ★ 2026-08-14 起：音檔分資料夾存，回傳值也跟著變
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  synthesize 多了第二個參數「這段文字是什麼語言」，回傳值也從「檔名」
+ *  變成「相對於 audio 資料夾的路徑」：
+ *
+ *        以前  synthesize("เหล้า")       →  Optional("a3f9c2b81e47.mp3")
+ *        現在  synthesize("เหล้า", TH)   →  Optional("th/a3f9c2b81e47.mp3")
+ *                                                    ↑ 多了資料夾
+ *
+ *  為什麼要分資料夾：這個系統現在中文泰文都會唸。兩種音檔混在同一個資料夾、
+ *  檔名又都是隨機亂碼，日後要清理或搬移完全分不出哪個是哪個。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  七個測試各自在防什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
  *    測試一  正常              防：檔案沒寫出來、或寫出來的內容不對
@@ -83,6 +97,9 @@ package com.tim.language_project.client.openai;
  *        OpenAI 有沒有真的替我們做事 → 有就記字元數，沒有就記 0
  *
  *      這條規則寫錯不會有任何錯誤訊息，只會讓帳對不起來。
+ *
+ *    測試六  泰文的資料夾      防：泰文音檔沒進 th/，或回傳值漏掉資料夾
+ *    測試七  中文的資料夾      防：中文音檔沒進 zh/
  */
 
 import com.tim.language_project.client.usage.ApiUsageRecorder;
@@ -90,6 +107,7 @@ import com.tim.language_project.config.AiPricingProperties;
 import com.tim.language_project.config.AudioStorageProperties;
 import com.tim.language_project.enums.AiProviderEnum;
 import com.tim.language_project.enums.AiServiceTypeEnum;
+import com.tim.language_project.enums.SpeechLanguageEnum;
 import com.tim.language_project.enums.UsageUnitTypeEnum;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -155,14 +173,15 @@ class OpenAiSpeechClientTest {
         byte[] audioBytes = {1, 2, 3};
         given(textToSpeechModel.call(THAI_TEXT)).willReturn(audioBytes);
 
-        Optional<String> fileName = openAiSpeechClient.synthesize(THAI_TEXT);
+        Optional<String> filePath =
+                openAiSpeechClient.synthesize(THAI_TEXT, SpeechLanguageEnum.TH);
 
-        // 我主張：有回傳檔名，而且是 mp3
-        assertThat(fileName).isPresent();
-        assertThat(fileName.get()).endsWith(".mp3");
+        // 我主張：有回傳路徑，而且是 mp3
+        assertThat(filePath).isPresent();
+        assertThat(filePath.get()).endsWith(".mp3");
 
         // 我主張：那個檔案真的存在，而且內容就是拿到的位元組
-        Path writtenFile = tempDirectory.resolve(fileName.get());
+        Path writtenFile = tempDirectory.resolve(filePath.get());
         assertThat(writtenFile).exists();
         assertThat(Files.readAllBytes(writtenFile)).isEqualTo(audioBytes);
     }
@@ -173,9 +192,10 @@ class OpenAiSpeechClientTest {
     @Test
     @DisplayName("輸入為空時不應呼叫語音服務")
     void shouldNotCallServiceForEmptyText() {
-        Optional<String> fileName = openAiSpeechClient.synthesize("");
+        Optional<String> filePath =
+                openAiSpeechClient.synthesize("", SpeechLanguageEnum.TH);
 
-        assertThat(fileName).isEmpty();
+        assertThat(filePath).isEmpty();
 
         // 我主張：完全沒有去呼叫模型，也沒有記任何一筆帳
         verify(textToSpeechModel, never()).call(anyString());
@@ -196,10 +216,11 @@ class OpenAiSpeechClientTest {
         given(textToSpeechModel.call(THAI_TEXT))
                 .willThrow(new RuntimeException("connection reset"));
 
-        Optional<String> fileName = openAiSpeechClient.synthesize(THAI_TEXT);
+        Optional<String> filePath =
+                openAiSpeechClient.synthesize(THAI_TEXT, SpeechLanguageEnum.TH);
 
         // 我主張：沒有丟出例外（丟了的話這一行根本執行不到），只是回傳空的
-        assertThat(fileName).isEmpty();
+        assertThat(filePath).isEmpty();
 
         // 我主張：記了一筆失敗紀錄，但用量是 0 —— 根本沒接通，不該有費用
         verify(apiUsageRecorder).record(
@@ -221,9 +242,10 @@ class OpenAiSpeechClientTest {
     void shouldRecordCharacterCountWhenAudioIsEmpty() {
         given(textToSpeechModel.call(THAI_TEXT)).willReturn(new byte[0]);
 
-        Optional<String> fileName = openAiSpeechClient.synthesize(THAI_TEXT);
+        Optional<String> filePath =
+                openAiSpeechClient.synthesize(THAI_TEXT, SpeechLanguageEnum.TH);
 
-        assertThat(fileName).isEmpty();
+        assertThat(filePath).isEmpty();
 
         verify(apiUsageRecorder).record(
                 any(), any(), anyString(), any(),
@@ -257,9 +279,10 @@ class OpenAiSpeechClientTest {
 
         given(textToSpeechModel.call(THAI_TEXT)).willReturn(new byte[]{1, 2, 3});
 
-        Optional<String> fileName = blockedClient.synthesize(THAI_TEXT);
+        Optional<String> filePath =
+                blockedClient.synthesize(THAI_TEXT, SpeechLanguageEnum.TH);
 
-        assertThat(fileName).isEmpty();
+        assertThat(filePath).isEmpty();
 
         // 我主張：聲音已經拿到、錢已經付了，字元數要照實記，只是標記失敗
         verify(apiUsageRecorder).record(
@@ -268,5 +291,41 @@ class OpenAiSpeechClientTest {
                 eq(0L),
                 any(), any(),
                 eq(false));
+    }
+
+    /*
+     * ═══ 測試六：泰文要存進 th/ 子資料夾 ═══════════════════════════════
+     *
+     * 為什麼要分資料夾：中文音檔和泰文音檔混在同一個資料夾裡，
+     * 檔名又都是隨機亂碼，日後要清理或搬移完全分不出哪個是哪個。
+     */
+    @Test
+    @DisplayName("泰文音檔應存入 th 子資料夾，回傳路徑含資料夾")
+    void shouldStoreThaiAudioInThaiFolder() {
+        given(textToSpeechModel.call("เหล้า")).willReturn(new byte[]{1, 2, 3});
+
+        Optional<String> filePath =
+                openAiSpeechClient.synthesize("เหล้า", SpeechLanguageEnum.TH);
+
+        assertThat(filePath).isPresent();
+        assertThat(filePath.get()).startsWith("th/");
+        assertThat(filePath.get()).endsWith(".mp3");
+        assertThat(tempDirectory.resolve(filePath.get())).exists();
+    }
+
+    /*
+     * ═══ 測試七：中文要存進 zh/ 子資料夾 ═══════════════════════════════
+     */
+    @Test
+    @DisplayName("中文音檔應存入 zh 子資料夾")
+    void shouldStoreChineseAudioInChineseFolder() {
+        given(textToSpeechModel.call("酒")).willReturn(new byte[]{1, 2, 3});
+
+        Optional<String> filePath =
+                openAiSpeechClient.synthesize("酒", SpeechLanguageEnum.ZH);
+
+        assertThat(filePath).isPresent();
+        assertThat(filePath.get()).startsWith("zh/");
+        assertThat(tempDirectory.resolve(filePath.get())).exists();
     }
 }
