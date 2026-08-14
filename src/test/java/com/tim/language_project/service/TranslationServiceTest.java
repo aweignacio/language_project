@@ -231,7 +231,7 @@ class TranslationServiceTest {
         assertThat(response.segments()).hasSize(1);
 
         // 而且照樣存進資料庫 —— 沒有音檔不代表這次查詢不值得快取
-        verify(translationPersistenceService).persist(any(), any(), any());
+        verify(translationPersistenceService).persist(any(), any(), any(), any());
     }
 
     /*
@@ -257,7 +257,7 @@ class TranslationServiceTest {
                 .isEqualTo(ErrorCodeEnum.INPUT_UNSUPPORTED_CONTENT);
 
         // ★ 這三行是重點：什麼都不准留下來
-        verify(translationPersistenceService, never()).persist(any(), any(), any());
+        verify(translationPersistenceService, never()).persist(any(), any(), any(), any());
         // 也不該為了一個翻不出來的東西去生語音
         verify(speechClient, never()).synthesize(anyString(), any());
     }
@@ -300,7 +300,7 @@ class TranslationServiceTest {
         when(speechClient.synthesize("น้ำ", SpeechLanguageEnum.TH)).thenReturn(Optional.of("xyz.mp3"));
 
         // 寫入時撞唯一鍵
-        when(translationPersistenceService.persist(any(), any(), any()))
+        when(translationPersistenceService.persist(any(), any(), any(), any()))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"));
 
         TranslationResponseDto response = translationService.translate("水");

@@ -193,7 +193,8 @@ public class TranslationService {
                 .orElse(null);
 
         try {
-            translationPersistenceService.persist(sourceText, result, audioFile);
+            translationPersistenceService.persist(
+                    sourceText, TranslationDirectionEnum.ZH_TO_TH, null, result);
         } catch (DataIntegrityViolationException exception) {
             // 撞到唯一鍵，代表在我們翻譯的這幾秒內，另一個請求已經把同一句寫進去了。
             // 這不是錯誤，是「有人比我們快」。改讀他寫好的那筆回傳，

@@ -17,14 +17,22 @@ package com.tim.language_project.service;
  *
  * ── 第 1 步｜TranslationService 呼叫 persist ────────────────────────────
  *
- *        persist("我想喝酒", result, "a3f9c2b81e47.mp3")
- *                 ↑原文      ↑翻譯結果  ↑音檔檔名（語音失敗時是 null）
+ *        persist("我想喝酒", ZH_TO_TH, MALE, result)
+ *                 ↑原文     ↑方向     ↑性別  ↑翻譯結果
+ *
+ *    ★ 2026-08-14 起「不再收音檔檔名」。
+ *      音檔改由 AudioAssetService 以文字內容為鍵統一管理，
+ *      這張表只存文字。
  *
  * ── 第 2 步｜寫入 translation_query（快取）─────────────────────────────
  *
- *        id  source_text  thai_text          romanization          audio_file
- *        ──  ───────────  ────────────────   ──────────────────    ──────────────
- *        42  我想喝酒     ฉันอยากดื่มเหล้า      chǎn yàak dùuem lâo   a3f9c2b81e47.mp3
+ *        id  source_text  direction  gender  chinese_text  thai_text            romanization
+ *        ──  ───────────  ─────────  ──────  ────────────  ──────────────────   ───────────────────
+ *        42  我想喝酒     ZH_TO_TH   MALE    我想喝酒      ผมอยากดื่มเหล้าครับ    pǒm yàak dùuem lâo khráp
+ *
+ *    ★ 快取的鑰匙是「原文＋方向＋性別」三欄的組合，不是只有原文。
+ *      同一句話的男版與女版泰文真的不一樣，必須各存一筆。
+ *      泰翻中沒有性別概念，gender 存 null。
  *
  *    ★ 用 saveAndFlush 而不是 save，是為了「現在就拿到 id」。
  *      下一步的逐詞資料要用這個 id 當外鍵，不先送出去就拿不到編號。
@@ -40,19 +48,41 @@ package com.tim.language_project.service;
  *
  *    seq_no 從 1 開始遞增，前端就是照這個順序排版的。
  *
- * ── 第 4 步｜沉澱單字（只寫沒有的）─────────────────────────────────────
+ * ── 第 4 步｜沉澱單字（新的寫進去，舊的補齊欄位）───────────────────────
  *
- *    先一次問資料庫「這四個詞裡面，哪些已經有了？」
+ *    要寫的東西有兩種來源，看 result.variants() 有沒有內容：
  *
- *        List<String> existing = findExistingChineseTexts(["我","想","喝","酒"]);
- *        // 假設回傳 ["我", "水"] 之外的都沒有 → 只寫入沒有的那些
+ *        有內容 → 這是「單字查詢」（你查的就是一個詞）。
+ *                 把每一種說法各寫一列，帶著性別、禮貌、說明：
  *
- *    ★ 為什麼要一次問四個，而不是一個一個問？
- *      一次來回 vs 四次來回，資料庫往返的成本差很多。
+ *                     chinese_text  thai_text  gender_usage  politeness  note
+ *                     ────────────  ─────────  ────────────  ──────────  ──────────
+ *                     我            ผม          MALE          FORMAL      男生自稱
+ *                     我            ฉัน          FEMALE        FORMAL      女生自稱
+ *                     我            กู           BOTH          RUDE        很不客氣
+ *
+ *        是空的 → 這是「句子查詢」。把逐詞各寫一列，那三個標籤是 null ——
+ *                 翻句子時我們不會去問模型「每個詞各適合誰用」。
+ *
+ *    接著一次問資料庫「這些詞裡面，哪些已經有了？」
+ *
+ *        List<Vocabulary> existing = findAllByChineseTextIn(["我"]);
+ *
+ *    ★ 撈的是「整個實體」不是只撈中文字，因為已存在的列不是單純跳過：
+ *
+ *        第 1 天  你查「我想喝酒」→「我 → ฉัน」被沉澱進來，三個標籤是空的
+ *        第 3 天  你單獨查「我」  → 模型給了完整標籤
+ *                                → ★ ฉัน 那一列要被「補齊」，不是跳過
+ *
+ *      漏掉這件事的話，「我」「你」「他」這些最常出現在句子裡的詞，
+ *      會永遠停在沒有標籤的狀態 —— 而那正是這次改版最想解決的詞。
+ *
+ *    ★ 但已經「有值」的欄位一律不覆蓋。那是先前寫入的歷史，不該被改寫。
  *
  *    ★ sourceType 怎麼決定？
  *        使用者查的就是這個詞本身（查「水」）→ DIRECT
  *        這個詞是從句子拆出來的（查「我想喝酒」拆出「水」）→ SEGMENT
+ *      已存在的列不更新這一欄，以首次寫入的值為準。
  *
  * ══════════════════════════════════════════════════════════════════════════
  *  為什麼寫入要獨立成一個 Service，不寫在 TranslationService 裡
@@ -71,10 +101,12 @@ package com.tim.language_project.service;
  */
 
 import com.tim.language_project.client.model.TranslationResult;
+import com.tim.language_project.client.model.TranslationVariant;
 import com.tim.language_project.client.model.TranslationWord;
 import com.tim.language_project.entity.TranslationQuery;
 import com.tim.language_project.entity.TranslationSegment;
 import com.tim.language_project.entity.Vocabulary;
+import com.tim.language_project.enums.SpeakerGenderEnum;
 import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.enums.VocabularySourceTypeEnum;
 import com.tim.language_project.repository.TranslationQueryRepository;
@@ -105,14 +137,19 @@ public class TranslationPersistenceService {
 
     /**
      * 寫入一次完整的查詢結果，回傳快取那一筆的 id。
+     * 音檔不在這裡處理 —— 全站的音檔由 AudioAssetService 統一管理。
      */
     @Transactional
-    public Long persist(String sourceText, TranslationResult result, String audioFile) {
+    public Long persist(String sourceText,
+                        TranslationDirectionEnum direction,
+                        SpeakerGenderEnum gender,
+                        TranslationResult result) {
         TranslationQuery query = new TranslationQuery();
-        // 這幾行是暫時的：方向、性別、中文面與多重說法在 Task 12 才會正式接進來。
         query.setSourceText(sourceText);
-        query.setDirection(TranslationDirectionEnum.ZH_TO_TH);
-        query.setChineseText(sourceText);
+        query.setDirection(direction);
+        // ★ 泰翻中沒有性別概念，這裡會是 null，資料表允許。
+        query.setGender(gender);
+        query.setChineseText(result.chineseText());
         query.setThaiText(result.thaiText());
         query.setRomanization(result.romanization());
 
@@ -120,7 +157,7 @@ public class TranslationPersistenceService {
         TranslationQuery savedQuery = translationQueryRepository.saveAndFlush(query);
 
         persistSegments(savedQuery.getId(), result.words());
-        persistNewVocabulary(sourceText, result.words());
+        persistVocabulary(sourceText, result);
 
         return savedQuery.getId();
     }
@@ -147,44 +184,48 @@ public class TranslationPersistenceService {
     }
 
     /**
-     * 把拆解出來的詞沉澱進單字庫，已經存在的略過。
-     * 已存在的不覆蓋 —— 那個詞當初是怎麼進來的屬於歷史，不該被改寫。
+     * 把這次的結果沉澱進單字庫。
+     *
+     * 兩種來源：
+     *   variants 有內容 → 這是單字查詢，把每一種說法各寫一列
+     *   variants 是空的 → 這是句子查詢，把逐詞各寫一列（沒有標籤）
+     *
+     * ★ 已經存在的說法不是單純「跳過」。
+     *   如果它的性別／禮貌／說明是空的（代表它當初是從句子沉澱下來的），
+     *   而這次拿到了有值的資料，就要補上去。漏掉這件事的話，
+     *   「我」「你」「他」這些最常出現在句子裡的詞，
+     *   會永遠停在沒有標籤的狀態 —— 而那正是這次改版最想解決的詞。
      */
-    private void persistNewVocabulary(String sourceText, List<TranslationWord> words) {
-        if (ObjectUtils.isEmpty(words)) {
+    private void persistVocabulary(String sourceText, TranslationResult result) {
+        List<Vocabulary> candidates = ObjectUtils.isEmpty(result.variants())
+                ? fromWords(sourceText, result.words())
+                : fromVariants(sourceText, result);
+
+        if (ObjectUtils.isEmpty(candidates)) {
             return;
         }
 
-        List<String> chineseTexts = words.stream()
-                .map(TranslationWord::chineseText)
+        List<String> chineseTexts = candidates.stream()
+                .map(Vocabulary::getChineseText)
                 .distinct()
                 .toList();
 
-        if (ObjectUtils.isEmpty(chineseTexts)) {
-            return;
-        }
-
-        // 暫時只取出中文字比對，Task 12 會改成用「中文＋泰文」判斷並補齊標籤。
-        List<String> existing = vocabularyRepository.findAllByChineseTextIn(chineseTexts).stream()
-                .map(Vocabulary::getChineseText)
-                .toList();
+        List<Vocabulary> existingEntries =
+                vocabularyRepository.findAllByChineseTextIn(chineseTexts);
 
         List<Vocabulary> newEntries = new ArrayList<>();
 
-        for (TranslationWord word : words) {
-            if (existing.contains(word.chineseText())
-                    || containsChineseText(newEntries, word.chineseText())) {
+        for (Vocabulary candidate : candidates) {
+            Vocabulary existing = findExisting(existingEntries, candidate);
+
+            if (Objects.isNull(existing)) {
+                if (!containsSameWord(newEntries, candidate)) {
+                    newEntries.add(candidate);
+                }
                 continue;
             }
 
-            Vocabulary vocabulary = new Vocabulary();
-            vocabulary.setChineseText(word.chineseText());
-            vocabulary.setThaiText(word.thaiText());
-            vocabulary.setRomanization(word.romanization());
-            vocabulary.setSourceType(Objects.equals(sourceText, word.chineseText())
-                    ? VocabularySourceTypeEnum.DIRECT
-                    : VocabularySourceTypeEnum.SEGMENT);
-            newEntries.add(vocabulary);
+            fillMissingLabels(existing, candidate);
         }
 
         if (!ObjectUtils.isEmpty(newEntries)) {
@@ -193,10 +234,95 @@ public class TranslationPersistenceService {
     }
 
     /**
-     * 防止同一句話裡重複出現的詞被寫入兩次（例如「喝酒喝酒」）。
+     * 單字查詢：每一種說法各一列，帶著性別與禮貌標籤。
      */
-    private boolean containsChineseText(List<Vocabulary> entries, String chineseText) {
+    private List<Vocabulary> fromVariants(String sourceText, TranslationResult result) {
+        List<Vocabulary> entries = new ArrayList<>();
+
+        for (TranslationVariant variant : result.variants()) {
+            Vocabulary vocabulary = new Vocabulary();
+            vocabulary.setChineseText(result.chineseText());
+            vocabulary.setThaiText(variant.thaiText());
+            vocabulary.setRomanization(variant.romanization());
+            vocabulary.setGenderUsage(variant.genderUsage());
+            vocabulary.setPoliteness(variant.politeness());
+            vocabulary.setNote(variant.note());
+            vocabulary.setSourceType(Objects.equals(sourceText, result.chineseText())
+                    ? VocabularySourceTypeEnum.DIRECT
+                    : VocabularySourceTypeEnum.SEGMENT);
+            entries.add(vocabulary);
+        }
+
+        return entries;
+    }
+
+    /**
+     * 句子查詢：逐詞各一列，沒有標籤（翻句子時不會問模型要那些資訊）。
+     */
+    private List<Vocabulary> fromWords(String sourceText, List<TranslationWord> words) {
+        if (ObjectUtils.isEmpty(words)) {
+            return List.of();
+        }
+
+        List<Vocabulary> entries = new ArrayList<>();
+
+        for (TranslationWord word : words) {
+            Vocabulary vocabulary = new Vocabulary();
+            vocabulary.setChineseText(word.chineseText());
+            vocabulary.setThaiText(word.thaiText());
+            vocabulary.setRomanization(word.romanization());
+            vocabulary.setSourceType(Objects.equals(sourceText, word.chineseText())
+                    ? VocabularySourceTypeEnum.DIRECT
+                    : VocabularySourceTypeEnum.SEGMENT);
+            entries.add(vocabulary);
+        }
+
+        return entries;
+    }
+
+    /**
+     * 找出資料庫裡「同一個中文詞、同一個泰文」的那一列。
+     * 唯一鍵是這兩欄的組合，所以比對也要用這兩欄。
+     */
+    private Vocabulary findExisting(List<Vocabulary> existingEntries, Vocabulary candidate) {
+        return existingEntries.stream()
+                .filter(entry -> Objects.equals(entry.getChineseText(),
+                        candidate.getChineseText()))
+                .filter(entry -> Objects.equals(entry.getThaiText(), candidate.getThaiText()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 只補空的欄位，已經有值的一律不動 ——
+     * 那些是先前寫入的歷史，不該被後來的呼叫改寫。
+     * source_type 也不更新，同樣的理由。
+     *
+     * ★ 這裡改的是從資料庫撈出來的 JPA 實體，而這個方法在 @Transactional 裡面，
+     *   所以 Hibernate 會在交易結束時自動把變更寫回去，不需要再呼叫 save。
+     *   這叫 dirty checking，是 JPA 的預設行為。
+     */
+    private void fillMissingLabels(Vocabulary existing, Vocabulary candidate) {
+        if (Objects.isNull(existing.getGenderUsage())) {
+            existing.setGenderUsage(candidate.getGenderUsage());
+        }
+
+        if (Objects.isNull(existing.getPoliteness())) {
+            existing.setPoliteness(candidate.getPoliteness());
+        }
+
+        if (ObjectUtils.isEmpty(existing.getNote())) {
+            existing.setNote(candidate.getNote());
+        }
+    }
+
+    /**
+     * 防止同一次寫入裡出現兩筆一樣的（例如句子裡重複的詞，或去重沒攔乾淨的說法）。
+     */
+    private boolean containsSameWord(List<Vocabulary> entries, Vocabulary candidate) {
         return entries.stream()
-                .anyMatch(entry -> Objects.equals(entry.getChineseText(), chineseText));
+                .anyMatch(entry -> Objects.equals(entry.getChineseText(),
+                        candidate.getChineseText())
+                        && Objects.equals(entry.getThaiText(), candidate.getThaiText()));
     }
 }
