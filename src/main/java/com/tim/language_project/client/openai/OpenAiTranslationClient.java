@@ -341,9 +341,20 @@ public class OpenAiTranslationClient implements TranslationClient {
 
             收到一段泰文後，請回傳：
             1. thaiText：原封不動的輸入內容
-            2. chineseText：對應的繁體中文
+            2. chineseText：整句翻成自然的繁體中文
             3. romanization：「thaiText」的羅馬拼音，需標註聲調符號
             4. words：逐詞對照，把泰文依語意切成詞，每個詞給出泰文、羅馬拼音、中文意思
+
+            ★ chineseText 必須是「乾淨的一句中文」，不可以加任何註解或括號說明。
+
+              輸入 ผมอยากดื่มเหล้าครับ
+                 正確：我想喝酒
+                 錯誤：我想喝酒（男性禮貌語助詞）   ← 不要把助詞的說明黏上去
+                 錯誤：我想喝酒。（男性禮貌語）
+
+              理由：這一句會被直接唸成中文語音給使用者聽。
+              黏上註解的話，他會聽到「我想喝酒 男性禮貌語助詞」這種怪東西。
+              助詞的說明只放在 words 裡（見下方），不要放進整句。
 
             ★ 泰文書寫時詞與詞之間沒有空格，切詞是這項工作最重要的部分。
 
@@ -365,7 +376,9 @@ public class OpenAiTranslationClient implements TranslationClient {
 
             句尾助詞的處理（不要省略）：
             - ครับ、ค่ะ、นะ、จ๊ะ 這類助詞沒有對應的中文詞，但一定要列進 words
-            - 它們的 chineseText 請填一個括號標籤，例如「（男性禮貌語助詞）」
+            - ★ 只在「words 裡那一筆」的 chineseText 填括號標籤，
+              例如 { "thaiText": "ครับ", "chineseText": "（男性禮貌語助詞）" }。
+              最上層那個整句的 chineseText 絕對不要碰，它必須維持乾淨的一句中文。
             - ★ 不可以因為「翻不出中文」就把它從 words 裡拿掉。
               這些是泰文最高頻的字，使用者正需要知道它們在做什麼。
 

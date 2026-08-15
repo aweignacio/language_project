@@ -21,6 +21,18 @@ package com.tim.language_project.repository;
  *
  *  代價是跑測試前要先啟動 Docker 容器。
  *
+ * ── ★ 測試資料為什麼要加「測試勿刪」前綴 ────────────────────────────────
+ *
+ *  連的是真實資料庫，而 @DataJpaTest 的交易雖然會回滾測試自己寫的東西，
+ *  「應用程式平常跑出來的資料」卻是留著的。
+ *
+ *  2026-08-15 就撞到了：實際查詢過「酒」之後，audio_asset 裡有了一筆
+ *  เหล้า / TH，測試再寫一筆一模一樣的就撞上唯一鍵，整支測試變紅 ——
+ *  但程式其實一點問題都沒有。
+ *
+ *  所以測試資料一律加前綴，確保不會跟真實用過的字重複。
+ *  這個前綴同時也讓人一眼看出「這筆是測試留下的，可以刪」。
+ *
  * ── 每個測試各自在防什麼 ────────────────────────────────────────────────
  *
  *  測試一  泰文存進去再撈出來還是泰文（防 NVARCHAR 被改成 VARCHAR）
@@ -54,13 +66,13 @@ class AudioAssetRepositoryTest {
     @DisplayName("泰文存入後應原樣取回")
     void shouldKeepThaiCharacters() {
         audioAssetRepository.saveAndFlush(
-                newAudioAsset("เหล้า", SpeechLanguageEnum.TH, "th/a1b2c3.mp3"));
+                newAudioAsset("測試勿刪เหล้า", SpeechLanguageEnum.TH, "th/a1b2c3.mp3"));
 
         Optional<AudioAssetDto> found = audioAssetRepository
-                .findBySpeechTextAndLanguage("เหล้า", SpeechLanguageEnum.TH);
+                .findBySpeechTextAndLanguage("測試勿刪เหล้า", SpeechLanguageEnum.TH);
 
         assertThat(found).isPresent();
-        assertThat(found.get().speechText()).isEqualTo("เหล้า");
+        assertThat(found.get().speechText()).isEqualTo("測試勿刪เหล้า");
         assertThat(found.get().filePath()).isEqualTo("th/a1b2c3.mp3");
     }
 
@@ -72,10 +84,10 @@ class AudioAssetRepositoryTest {
     @DisplayName("同一段文字加同一語言不可重複寫入")
     void shouldRejectDuplicateTextAndLanguage() {
         audioAssetRepository.saveAndFlush(
-                newAudioAsset("ขอบคุณ", SpeechLanguageEnum.TH, "th/d4e5f6.mp3"));
+                newAudioAsset("測試勿刪ขอบคุณ", SpeechLanguageEnum.TH, "th/d4e5f6.mp3"));
 
         assertThatThrownBy(() -> audioAssetRepository.saveAndFlush(
-                newAudioAsset("ขอบคุณ", SpeechLanguageEnum.TH, "th/g7h8i9.mp3")))
+                newAudioAsset("測試勿刪ขอบคุณ", SpeechLanguageEnum.TH, "th/g7h8i9.mp3")))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
@@ -83,12 +95,12 @@ class AudioAssetRepositoryTest {
     @DisplayName("同一段文字不同語言可各存一筆")
     void shouldAllowSameTextInDifferentLanguages() {
         audioAssetRepository.saveAndFlush(
-                newAudioAsset("OK", SpeechLanguageEnum.TH, "th/j1k2l3.mp3"));
+                newAudioAsset("測試勿刪OK", SpeechLanguageEnum.TH, "th/j1k2l3.mp3"));
         audioAssetRepository.saveAndFlush(
-                newAudioAsset("OK", SpeechLanguageEnum.ZH, "zh/m4n5o6.mp3"));
+                newAudioAsset("測試勿刪OK", SpeechLanguageEnum.ZH, "zh/m4n5o6.mp3"));
 
         assertThat(audioAssetRepository
-                .findBySpeechTextAndLanguage("OK", SpeechLanguageEnum.ZH))
+                .findBySpeechTextAndLanguage("測試勿刪OK", SpeechLanguageEnum.ZH))
                 .isPresent();
     }
 
