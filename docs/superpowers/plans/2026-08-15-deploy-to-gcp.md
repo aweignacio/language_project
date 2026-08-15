@@ -115,13 +115,52 @@ docker ps -a --format "{{.Names}} {{.Ports}}" | Select-String "5432"
 
 預期：**沒有任何輸出**。有輸出代表已有容器佔用，先處理再繼續。
 
-- [ ] **Step 2: 建立並啟動 PostgreSQL 容器**
+- [ ] **Step 2: 把 postgres 加進共用的 compose 檔並啟動**
 
-★ 帳號密碼就是在這一行決定的，不是去哪裡找出來的。使用者固定為 `postgres`。
+★ **不要用 `docker run` 單獨建。** 這台機器的共用資料庫統一由
+`C:\Tim\docker\compose.yaml`（compose 專案名 `shared-db`）管理，
+單獨 `docker run` 會造成三個問題：不屬於任何群組、資料落在**匿名 volume**
+（容器一刪就找不回來）、以及沒有 `restart` 策略（電腦重開機不會自己起來）。
+
+在 `compose.yaml` 的 `services:` 底下加入：
+
+```yaml
+  postgres:
+    image: 'postgres:latest'
+    container_name: postgres
+    environment:
+      - 'POSTGRES_PASSWORD=Postgres123456'
+      - 'TZ=Asia/Taipei'
+      #
+      # ★ 刻意「不」設 POSTGRES_DB。那個變數只在第一次初始化時建一個資料庫，
+      #   而這份 compose 是跨專案共用的，把某個專案的名字寫死在這裡
+      #   跟它的定位互相矛盾。每個專案自己建自己的（見 Step 6）。
+    ports:
+      - '5432:5432'
+    volumes:
+      # ★ 掛載點是 /var/lib/postgresql，不是網路上常見的 /var/lib/postgresql/data。
+      #   PostgreSQL 18 起官方映像檔的 PGDATA 改成 /var/lib/postgresql/18/docker，
+      #   宣告的 VOLUME 也跟著上移一層。照舊版教學寫 /data 的話，
+      #   volume 會掛在一個空目錄上 —— 看起來有掛，容器一重建資料照樣全沒，
+      #   而且不會有任何錯誤訊息。
+      - postgres-data:/var/lib/postgresql
+    restart: unless-stopped
+```
+
+並在檔案最下方的 `volumes:` 區塊加入：
+
+```yaml
+  postgres-data:
+    name: postgres-data
+```
+
+啟動（★ 指定服務名，否則會把 sqlserver 也一併拉起來）：
 
 ```powershell
-docker run -d --name postgres -e POSTGRES_PASSWORD=Postgres123456 -e POSTGRES_DB=language_project -e TZ=Asia/Taipei -p 5432:5432 postgres:latest
+docker compose -f C:\Tim\docker\compose.yaml up -d postgres
 ```
+
+★ 帳號密碼就是在 compose 檔裡決定的，不是去哪裡找出來的。使用者固定為 `postgres`。
 
 - [ ] **Step 3: 確認容器起來了**
 
@@ -148,6 +187,37 @@ docker exec postgres psql -U postgres -d language_project -t -c "SHOW server_ver
 預期：**≥ 150000**。
 
 ★ 這一步不可跳過。Task 4 要用的 `UNIQUE NULLS NOT DISTINCT` 是 PostgreSQL 15 才有的語法。若小於 15，改拉 `postgres:17` 映像重建容器。
+
+2026-08-15 實測為 **PostgreSQL 18.6**（`server_version_num = 180006`）。
+
+- [ ] **Step 6: 建立本專案的資料庫**
+
+共用的 compose 不綁任何專案，所以資料庫要自己建：
+
+```powershell
+docker exec postgres psql -U postgres -c "CREATE DATABASE language_project;"
+```
+
+★ 未來每個新專案都是這樣加一個 database，共用同一個容器與 `postgres` 帳號，
+連線字串只改最後一段（`jdbc:postgresql://localhost:5432/專案名`）。
+
+- [ ] **Step 7: 驗證 volume 真的有存到東西**
+
+掛錯路徑的症狀是「看起來正常、重建後才發現資料全沒」，所以要實際驗一次：
+
+```powershell
+docker exec postgres psql -U postgres -d language_project -c "CREATE TABLE _probe(id int);"
+docker compose -f C:\Tim\docker\compose.yaml down postgres
+docker compose -f C:\Tim\docker\compose.yaml up -d postgres
+Start-Sleep -Seconds 10
+docker exec postgres psql -U postgres -d language_project -c "\dt _probe"
+```
+
+預期：容器整個砍掉重建後，`_probe` **仍然存在**。驗完刪掉它：
+
+```powershell
+docker exec postgres psql -U postgres -d language_project -c "DROP TABLE _probe;"
+```
 
 ---
 
