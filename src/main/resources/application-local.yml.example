@@ -3,14 +3,14 @@
 # 使用方式：複製此檔為 application-local.yml，並填入實際值。
 # application-local.yml 已列入 .gitignore，不會進入版本控制。
 #
-# PostgreSQL 容器的啟動方式：
-#   docker run -d --name postgres `
-#     -e POSTGRES_PASSWORD=你的密碼 `
-#     -e POSTGRES_DB=language_project `
-#     -e TZ=Asia/Taipei `
-#     -p 5432:5432 postgres:latest
+# PostgreSQL 容器的啟動方式（定義在專案根目錄的 compose.yaml）：
 #
-# ★ 帳號固定是 postgres，密碼就是上面那行 POSTGRES_PASSWORD 自己設的值。
+#   Copy-Item .env.example .env      # 只需做一次，接著編輯 .env 填入密碼
+#   docker compose up -d
+#
+# ★ 帳號固定是 postgres，密碼就是 .env 裡的 POSTGRES_PASSWORD ——
+#   那是你自己決定的值，不是要去哪裡查出來的。
+#   ★ 這裡的 password 必須與 .env 填的完全一致，兩邊不同步就會連不上。
 
 spring:
   datasource:

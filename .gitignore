@@ -40,6 +40,9 @@ application-secret*.properties
 application-secret*.yml
 .env
 .env.*
+# 但範本必須進版控，否則 clone 下來的人不知道要填哪些變數。
+# 這一行要放在 .env.* 之後才有效，順序反了就不會生效。
+!.env.example
 *.key
 *.pem
 *.p12

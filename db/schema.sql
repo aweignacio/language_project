@@ -330,8 +330,8 @@ CREATE INDEX IF NOT EXISTS ix_api_usage_log_query_id
  * ============================================================
  *
  * 【本機】
- *   docker cp db\schema.sql postgres:/tmp/schema.sql
- *   docker exec postgres psql -U postgres -d language_project -f /tmp/schema.sql
+ *   docker cp db\schema.sql language-project-postgres:/tmp/schema.sql
+ *   docker exec language-project-postgres psql -U postgres -d language_project -f /tmp/schema.sql
  *
  * 【重新建立】
  *   本腳本不會覆蓋既有資料表，直接重跑不會清掉任何東西。

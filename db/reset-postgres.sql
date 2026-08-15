@@ -20,8 +20,8 @@
  *   刪掉那些檔案，並確認 audio/th 與 audio/zh 兩個子資料夾存在。
  *
  * 執行方式：
- *   docker cp db\reset-postgres.sql postgres:/tmp/reset.sql
- *   docker exec postgres psql -U postgres -d language_project -f /tmp/reset.sql
+ *   docker cp db\reset-postgres.sql language-project-postgres:/tmp/reset.sql
+ *   docker exec language-project-postgres psql -U postgres -d language_project -f /tmp/reset.sql
  */
 
 DROP TABLE IF EXISTS translation_segment CASCADE;

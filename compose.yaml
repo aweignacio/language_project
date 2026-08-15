@@ -1,0 +1,57 @@
+# 這個專案專屬的資料庫容器
+#
+# 刻意「不」跟其他專案共用一台資料庫伺服器，理由是這個專案要能整包搬走 ——
+# 換一台電腦、或交給別人時，clone 下來就能起，不必先去別的地方架環境。
+# 代價是每個專案各佔一份記憶體（PostgreSQL 約 50MB），這個代價可以接受。
+#
+# ★ 因此本檔案與 C:\Tim\docker\compose.yaml（shared-db）互不相干。
+#   那份是跨專案共用的基礎設施，這份只服務 language_project。
+#
+# 啟動：docker compose up -d
+# 停止：docker compose stop
+# 砍掉重來（★ 會刪資料）：docker compose down -v
+#
+# ── 密碼放在哪 ──────────────────────────────────────────────────────────
+#   實際的密碼在同層的 .env（已排除於版控外），範本見 .env.example。
+#   Compose 會自動讀取 .env，不需要額外指定。
+#   這與 application-local.yml / application-local.yml.example 是同一套做法。
+
+name: language-project
+
+services:
+  postgres:
+    image: 'postgres:18'
+    container_name: language-project-postgres
+    environment:
+      - 'POSTGRES_PASSWORD=${POSTGRES_PASSWORD}'
+      - 'POSTGRES_DB=language_project'
+      # 容器時區。Linux 容器預設是 UTC，CURRENT_TIMESTAMP 便會回 UTC 時間，
+      # 比台灣慢 8 小時，直接查資料庫時看到的時間會跟牆上的鐘對不起來。
+      - 'TZ=Asia/Taipei'
+    ports:
+      # ★ 每個專案各自跑一台，port 必須互不衝突。
+      #   這個專案佔 5432，下一個專案請改用 5433、5434……
+      - '5432:5432'
+    volumes:
+      # ★ 掛載點是 /var/lib/postgresql，不是網路教學常見的
+      #   /var/lib/postgresql/data。
+      #
+      #   PostgreSQL 18 起，官方映像檔的 PGDATA 改成
+      #   /var/lib/postgresql/18/docker，宣告的 VOLUME 也跟著上移一層。
+      #   照舊版寫 /data 的話，volume 會掛在一個空目錄上 ——
+      #   看起來有掛，容器一重建資料照樣全沒，而且不會有任何錯誤訊息。
+      - language-project-postgres-data:/var/lib/postgresql
+    restart: unless-stopped
+    healthcheck:
+      # 讓 docker compose ps 看得出資料庫是「真的可以接受連線」了，
+      # 而不只是「容器在跑」。PostgreSQL 啟動後還要幾秒才會開始聽。
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d language_project']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  language-project-postgres-data:
+    # 明確指定名稱，不吃 Compose 專案前綴，這樣搬動 compose.yaml 位置時
+    # 資料仍然接得回來。名稱帶專案前綴，避免與其他專案的 volume 撞名。
+    name: language-project-postgres-data

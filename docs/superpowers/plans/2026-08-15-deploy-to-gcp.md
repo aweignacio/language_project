@@ -115,52 +115,57 @@ docker ps -a --format "{{.Names}} {{.Ports}}" | Select-String "5432"
 
 預期：**沒有任何輸出**。有輸出代表已有容器佔用，先處理再繼續。
 
-- [ ] **Step 2: 把 postgres 加進共用的 compose 檔並啟動**
+- [ ] **Step 2: 建立本專案專屬的 compose 檔並啟動**
 
-★ **不要用 `docker run` 單獨建。** 這台機器的共用資料庫統一由
-`C:\Tim\docker\compose.yaml`（compose 專案名 `shared-db`）管理，
-單獨 `docker run` 會造成三個問題：不屬於任何群組、資料落在**匿名 volume**
-（容器一刪就找不回來）、以及沒有 `restart` 策略（電腦重開機不會自己起來）。
+★ **不要用 `docker run` 單獨建**，會造成三個問題：不屬於任何群組、資料落在**匿名 volume**（容器一刪就找不回來）、沒有 `restart` 策略（電腦重開機不會自己起來）。
 
-在 `compose.yaml` 的 `services:` 底下加入：
+★ **也不要放進 `C:\Tim\docker\compose.yaml`（`shared-db`）。** 那份是跨專案共用的基礎設施，而這個專案要能「整包搬走」—— 換一台電腦或交給別人時，clone 下來就能起。所以資料庫定義放在**專案根目錄**。
+
+建立 `C:\Tim\language_project\compose.yaml`：
+
+完整內容見專案根目錄的 `compose.yaml`。重點：
 
 ```yaml
+name: language-project
+
+services:
   postgres:
-    image: 'postgres:latest'
-    container_name: postgres
+    image: 'postgres:18'
+    container_name: language-project-postgres
     environment:
-      - 'POSTGRES_PASSWORD=Postgres123456'
+      - 'POSTGRES_PASSWORD=${POSTGRES_PASSWORD}'
+      - 'POSTGRES_DB=language_project'
       - 'TZ=Asia/Taipei'
-      #
-      # ★ 刻意「不」設 POSTGRES_DB。那個變數只在第一次初始化時建一個資料庫，
-      #   而這份 compose 是跨專案共用的，把某個專案的名字寫死在這裡
-      #   跟它的定位互相矛盾。每個專案自己建自己的（見 Step 6）。
     ports:
+      # ★ 每個專案各跑一台，port 必須錯開。這個專案佔 5432，下一個用 5433。
       - '5432:5432'
     volumes:
-      # ★ 掛載點是 /var/lib/postgresql，不是網路上常見的 /var/lib/postgresql/data。
-      #   PostgreSQL 18 起官方映像檔的 PGDATA 改成 /var/lib/postgresql/18/docker，
-      #   宣告的 VOLUME 也跟著上移一層。照舊版教學寫 /data 的話，
-      #   volume 會掛在一個空目錄上 —— 看起來有掛，容器一重建資料照樣全沒，
-      #   而且不會有任何錯誤訊息。
-      - postgres-data:/var/lib/postgresql
+      # ★ 掛載點是 /var/lib/postgresql，不是網路教學常見的 /var/lib/postgresql/data。
+      #   PostgreSQL 18 起 PGDATA 改成 /var/lib/postgresql/18/docker，
+      #   宣告的 VOLUME 跟著上移一層。寫成 /data 的話 volume 會掛在空目錄上 ——
+      #   看起來有掛，容器一重建資料照樣全沒，而且不會有任何錯誤訊息。
+      - language-project-postgres-data:/var/lib/postgresql
     restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d language_project']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  language-project-postgres-data:
+    name: language-project-postgres-data
 ```
 
-並在檔案最下方的 `volumes:` 區塊加入：
-
-```yaml
-  postgres-data:
-    name: postgres-data
-```
-
-啟動（★ 指定服務名，否則會把 sqlserver 也一併拉起來）：
+密碼放在同層的 `.env`（已列入 `.gitignore`），範本是 `.env.example`。這與 `application-local.yml` / `.example` 是同一套慣例，讓 compose 檔本身可以安心進版控。
 
 ```powershell
-docker compose -f C:\Tim\docker\compose.yaml up -d postgres
+Copy-Item .env.example .env
+# 編輯 .env 填入密碼，接著
+docker compose up -d
 ```
 
-★ 帳號密碼就是在 compose 檔裡決定的，不是去哪裡找出來的。使用者固定為 `postgres`。
+★ 帳號固定 `postgres`，密碼就是 `.env` 裡你自己填的值，不是去哪裡找出來的。
 
 - [ ] **Step 3: 確認容器起來了**
 
@@ -173,7 +178,7 @@ docker ps --filter name=postgres --format "{{.Names}} {{.Status}}"
 - [ ] **Step 4: 確認資料庫連得進去**
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -c "SELECT version();"
+docker exec language-project-postgres psql -U postgres -d language_project -c "SELECT version();"
 ```
 
 預期：印出 `PostgreSQL 1x.x ...`
@@ -181,7 +186,7 @@ docker exec postgres psql -U postgres -d language_project -c "SELECT version();"
 - [ ] **Step 5: ★ 確認版本 ≥ 15**
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -t -c "SHOW server_version_num;"
+docker exec language-project-postgres psql -U postgres -d language_project -t -c "SHOW server_version_num;"
 ```
 
 預期：**≥ 150000**。
@@ -190,34 +195,25 @@ docker exec postgres psql -U postgres -d language_project -t -c "SHOW server_ver
 
 2026-08-15 實測為 **PostgreSQL 18.6**（`server_version_num = 180006`）。
 
-- [ ] **Step 6: 建立本專案的資料庫**
-
-共用的 compose 不綁任何專案，所以資料庫要自己建：
-
-```powershell
-docker exec postgres psql -U postgres -c "CREATE DATABASE language_project;"
-```
-
-★ 未來每個新專案都是這樣加一個 database，共用同一個容器與 `postgres` 帳號，
-連線字串只改最後一段（`jdbc:postgresql://localhost:5432/專案名`）。
-
-- [ ] **Step 7: 驗證 volume 真的有存到東西**
+- [ ] **Step 6: 驗證 volume 真的有存到東西**
 
 掛錯路徑的症狀是「看起來正常、重建後才發現資料全沒」，所以要實際驗一次：
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -c "CREATE TABLE _probe(id int);"
-docker compose -f C:\Tim\docker\compose.yaml down postgres
-docker compose -f C:\Tim\docker\compose.yaml up -d postgres
-Start-Sleep -Seconds 10
-docker exec postgres psql -U postgres -d language_project -c "\dt _probe"
+docker exec language-project-postgres psql -U postgres -d language_project -c "CREATE TABLE _probe(id int);"
+docker compose down
+docker compose up -d
+Start-Sleep -Seconds 15
+docker exec language-project-postgres psql -U postgres -d language_project -c "\dt _probe"
 ```
 
 預期：容器整個砍掉重建後，`_probe` **仍然存在**。驗完刪掉它：
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -c "DROP TABLE _probe;"
+docker exec language-project-postgres psql -U postgres -d language_project -c "DROP TABLE _probe;"
 ```
+
+★ 資料庫本身由 `POSTGRES_DB=language_project` 在初始化時自動建立，不需要手動 `CREATE DATABASE`。
 
 ---
 
@@ -613,8 +609,8 @@ CREATE INDEX IF NOT EXISTS ix_api_usage_log_query_id
  * ============================================================
  *
  * 【本機】
- *   docker cp db\schema.sql postgres:/tmp/schema.sql
- *   docker exec postgres psql -U postgres -d language_project -f /tmp/schema.sql
+ *   docker cp db\schema.sql language-project-postgres:/tmp/schema.sql
+ *   docker exec language-project-postgres psql -U postgres -d language_project -f /tmp/schema.sql
  *
  * 【重新建立】
  *   本腳本不會覆蓋既有資料表，直接重跑不會清掉任何東西。
@@ -654,8 +650,8 @@ CREATE INDEX IF NOT EXISTS ix_api_usage_log_query_id
  *
  * ── 執行方式 ────────────────────────────────────────────────────────────
  *
- *   docker cp db\reset-postgres.sql postgres:/tmp/reset.sql
- *   docker exec postgres psql -U postgres -d language_project -f /tmp/reset.sql
+ *   docker cp db\reset-postgres.sql language-project-postgres:/tmp/reset.sql
+ *   docker exec language-project-postgres psql -U postgres -d language_project -f /tmp/reset.sql
  */
 
 /* 刪除順序：有外鍵指出去的要先刪。
@@ -678,8 +674,8 @@ DROP TABLE IF EXISTS audio_asset         CASCADE;
 - [ ] **Step 3: 建立資料表**
 
 ```powershell
-docker cp db\schema.sql postgres:/tmp/schema.sql
-docker exec postgres psql -U postgres -d language_project -f /tmp/schema.sql
+docker cp db\schema.sql language-project-postgres:/tmp/schema.sql
+docker exec language-project-postgres psql -U postgres -d language_project -f /tmp/schema.sql
 ```
 
 預期：一連串 `CREATE TABLE`、`CREATE INDEX`，**無 ERROR**。
@@ -687,7 +683,7 @@ docker exec postgres psql -U postgres -d language_project -f /tmp/schema.sql
 - [ ] **Step 4: 確認五張表都在**
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -c "\dt"
+docker exec language-project-postgres psql -U postgres -d language_project -c "\dt"
 ```
 
 預期：列出 `api_usage_log`、`audio_asset`、`translation_query`、`translation_segment`、`vocabulary` 五張。
@@ -695,7 +691,7 @@ docker exec postgres psql -U postgres -d language_project -c "\dt"
 - [ ] **Step 5: ★ 驗證腳本可重複執行（不會壞、不會刪資料）**
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -f /tmp/schema.sql
+docker exec language-project-postgres psql -U postgres -d language_project -f /tmp/schema.sql
 ```
 
 預期：一堆 `NOTICE: relation "xxx" already exists, skipping`，**無 ERROR**。
@@ -797,14 +793,14 @@ Modify:
 # 使用方式：複製此檔為 application-local.yml，並填入實際值。
 # application-local.yml 已列入 .gitignore，不會進入版本控制。
 #
-# PostgreSQL 容器的啟動方式：
-#   docker run -d --name postgres `
-#     -e POSTGRES_PASSWORD=你的密碼 `
-#     -e POSTGRES_DB=language_project `
-#     -e TZ=Asia/Taipei `
-#     -p 5432:5432 postgres:latest
+# PostgreSQL 容器的啟動方式（定義在專案根目錄的 compose.yaml）：
 #
-# ★ 帳號固定是 postgres，密碼就是上面那行 POSTGRES_PASSWORD 自己設的值。
+#   Copy-Item .env.example .env      # 只需做一次，接著編輯 .env 填入密碼
+#   docker compose up -d
+#
+# ★ 帳號固定是 postgres，密碼就是 .env 裡的 POSTGRES_PASSWORD ——
+#   那是你自己決定的值，不是要去哪裡查出來的。
+#   ★ 這裡的 password 必須與 .env 填的完全一致，兩邊不同步就會連不上。
 
 spring:
   datasource:
@@ -854,7 +850,7 @@ spring:
 | 症狀 | 原因 | 處置 |
 |---|---|---|
 | `relation "xxx" does not exist` | Task 4 的 schema 沒跑進去 | 重跑 Task 4 Step 3 |
-| 唯一鍵測試沒抓到預期的例外 | 該表的唯一鍵沒建起來 | `docker exec postgres psql -U postgres -d language_project -c "\d 表名"` 確認 |
+| 唯一鍵測試沒抓到預期的例外 | 該表的唯一鍵沒建起來 | `docker exec language-project-postgres psql -U postgres -d language_project -c "\d 表名"` 確認 |
 | 連線被拒 | 容器沒起來 | `docker start postgres` |
 
 - [ ] **Step 5: 新增一個測試，專門守住 NULL 唯一鍵的行為**
@@ -969,8 +965,8 @@ class TranslationQueryNullGenderUniqueTest {
 暫時把 schema 的 `NULLS NOT DISTINCT` 拿掉，確認測試會失敗：
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -c "ALTER TABLE translation_query DROP CONSTRAINT uq_translation_query_key;"
-docker exec postgres psql -U postgres -d language_project -c "ALTER TABLE translation_query ADD CONSTRAINT uq_translation_query_key UNIQUE (source_text, direction, gender);"
+docker exec language-project-postgres psql -U postgres -d language_project -c "ALTER TABLE translation_query DROP CONSTRAINT uq_translation_query_key;"
+docker exec language-project-postgres psql -U postgres -d language_project -c "ALTER TABLE translation_query ADD CONSTRAINT uq_translation_query_key UNIQUE (source_text, direction, gender);"
 .\mvnw test -Dtest=TranslationQueryNullGenderUniqueTest
 ```
 
@@ -979,8 +975,8 @@ docker exec postgres psql -U postgres -d language_project -c "ALTER TABLE transl
 還原：
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -c "ALTER TABLE translation_query DROP CONSTRAINT uq_translation_query_key;"
-docker exec postgres psql -U postgres -d language_project -c "ALTER TABLE translation_query ADD CONSTRAINT uq_translation_query_key UNIQUE NULLS NOT DISTINCT (source_text, direction, gender);"
+docker exec language-project-postgres psql -U postgres -d language_project -c "ALTER TABLE translation_query DROP CONSTRAINT uq_translation_query_key;"
+docker exec language-project-postgres psql -U postgres -d language_project -c "ALTER TABLE translation_query ADD CONSTRAINT uq_translation_query_key UNIQUE NULLS NOT DISTINCT (source_text, direction, gender);"
 .\mvnw test -Dtest=TranslationQueryNullGenderUniqueTest
 ```
 
@@ -1804,7 +1800,7 @@ import java.nio.file.Paths;
 先取一個既有音檔的路徑：
 
 ```powershell
-docker exec postgres psql -U postgres -d language_project -t -c "SELECT file_path FROM audio_asset LIMIT 1;"
+docker exec language-project-postgres psql -U postgres -d language_project -t -c "SELECT file_path FROM audio_asset LIMIT 1;"
 ```
 
 用瀏覽器開 `http://localhost:8080/audio/<上面查到的路徑>`，預期**直接播出聲音**。
