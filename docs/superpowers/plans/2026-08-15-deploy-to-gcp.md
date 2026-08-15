@@ -74,19 +74,15 @@ docker exec sqlserver /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Sqlse
 db/backup/
 ```
 
-- [ ] **Step 5: 人工確認 GCP 額度（★ 這一步只有你能做）**
+- [x] **Step 5: 人工確認 GCP 額度（★ 這一步只有你能做）** — 已完成 2026-08-15
 
-開啟 <https://console.cloud.google.com/billing> → 左側「總覽 / Overview」
+**$300 額度到期日：2026-11-14**（帳號 2026-08-15 啟用，共 91 天）。
 
-記下兩個數字：
-- 剩餘額度（應接近 $300）
-- **到期日**（推估 2026-11-13 前後）
+到期時試用帳戶會自動關閉、服務停止，**不會自動扣款**。要繼續使用需手動升級為付費帳戶，屆時約 $22～27／月。
 
-把到期日回報，後續階段 5 會用它判斷時間壓力。
+- [x] **Step 6: 人工確認 OpenAI 未開啟自動儲值** — 已完成 2026-08-15
 
-- [ ] **Step 6: 人工確認 OpenAI 未開啟自動儲值**
-
-開啟 <https://platform.openai.com/settings/organization/billing> → 確認 **auto-recharge 為關閉**。
+auto-recharge 為關閉，OpenAI 的花費上限即為儲值金額。
 
 - [ ] **Step 7: Commit**
 
@@ -3303,9 +3299,9 @@ Feat:
 
 確認 <https://console.cloud.google.com/billing> 的預算列表中出現剛才建立的項目，且 Email 欄位是你的信箱。
 
-- [ ] **Step 3: 記下額度到期日**
+- [ ] **Step 3: 把額度到期日寫進行事曆**
 
-把 Task 1 Step 5 查到的到期日寫進行事曆，設一個**提前一週**的提醒。
+**到期日：2026-11-14。** 設一個 **2026-11-07** 的提醒（提前一週）。
 
 ★ 到期時試用帳戶會自動關閉、服務會停止，**不會自動扣款**。要繼續用就得手動升級成付費帳戶（屆時約 $22～27／月）。
 
