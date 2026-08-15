@@ -18,6 +18,15 @@ import java.util.List;
 @ConfigurationProperties(prefix = "audio.storage")
 public class AudioStorageProperties {
 
+    /**
+     * 音檔要存到哪裡。LOCAL / GCS。
+     *
+     * ★ 與 speech.provider 是同一種設計：兩份實作都在，切這一行就換人。
+     *   LOCAL 走 LocalDiskAudioStorage（本機的 audio 資料夾）
+     *   GCS   走 GoogleCloudAudioStorage（Cloud Storage）
+     */
+    private String provider = "LOCAL";
+
     private String directory = "audio";
 
     /**

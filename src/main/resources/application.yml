@@ -117,6 +117,12 @@ google:
 
 audio:
   storage:
+    # 音檔存到哪裡。LOCAL / GCS，兩份實作都在，切這一行就換人。
+    #
+    # ★ 與 speech.provider 是同一種設計。
+    #   本機維持 LOCAL；雲端由 application-prod.yml 覆寫為 GCS。
+    provider: LOCAL
+
     # 音檔存放資料夾。已列入 .gitignore，不進版本控制。
     # 底下會依語言再分 th/ 與 zh/ 兩個子資料夾。
     directory: audio
