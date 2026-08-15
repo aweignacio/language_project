@@ -1,0 +1,44 @@
+# 雲端專用設定。★ 這個檔案會進版控，所以裡面不可以有任何密碼或金鑰。
+#
+# 所有敏感值都寫成 ${環境變數名稱}，實際的值在 Cloud Run 後台設定。
+# 少填任何一個，程式會在啟動時就失敗 —— 這是刻意的，
+# 總比跑起來之後才在查詢時炸掉好。
+
+spring:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+
+google:
+  speech:
+    api-key: ${GOOGLE_SPEECH_API_KEY}
+
+audio:
+  storage:
+    # 雲端沒有本機資料夾，容器是用完就丟的。
+    provider: GCS
+
+    # Cloud Storage 的 bucket 名稱。
+    bucket: ${GCS_BUCKET}
+
+app:
+  auth:
+    username: ${APP_USERNAME}
+    password: ${APP_PASSWORD}
+
+# Cloud Run 需要一個健康檢查端點確認容器活著。
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
