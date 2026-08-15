@@ -2376,9 +2376,28 @@ docker build -t thailan:local .
 
 ```powershell
 docker images thailan:local --format "{{.Size}}"
+docker history thailan:local --format "{{.Size}}`t{{.CreatedBy}}"
 ```
 
-預期：**300MB 上下**。若超過 800MB，代表多階段沒生效（第三階段誤用了 maven 或 node 映像）。
+2026-08-15 實測：`docker images` 報 **546MB**，但那個數字含 buildx 的 attestation 額外資料；`docker history` 的分層加總才是實際的 **約 350MB**（jar 137MB ＋ JRE 165MB ＋ 字型等 37MB ＋ Alpine 9MB）。
+
+★ 判斷多階段有沒有生效**要看分層內容而不是總數字**：最終映像檔的層裡若出現 maven 或 node 相關指令，就是第三階段用錯了基底映像。
+
+★ 也要驗證前端真的被打包進去了，否則部署後會是一片白頁：
+
+```powershell
+docker run --rm --entrypoint sh thailan:local -c "unzip -l app.jar | grep -E 'static/(index.html|main-)'"
+```
+
+預期：列出 `BOOT-INF/classes/static/index.html` 與 `static/main-*.js`。
+
+★ 並確認金鑰沒被打包進去：
+
+```powershell
+docker run --rm --entrypoint sh thailan:local -c "unzip -p app.jar BOOT-INF/classes/application-local.yml 2>/dev/null | wc -l"
+```
+
+預期：**0**。（`application-local.yml.example` 會在裡面，那是只有佔位文字的範本，沒有問題。）
 
 - [ ] **Step 5: Commit**
 

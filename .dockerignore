@@ -1,0 +1,21 @@
+# 建置產物與相依套件，容器內會自己重新產生
+target/
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+
+# 本機音檔，雲端用 Cloud Storage
+audio/
+
+# ★ 本機設定含金鑰，絕對不可以進到映像檔裡
+src/main/resources/application-local.yml
+
+# 版控與 IDE
+.git/
+.idea/
+.settings/
+.vscode/
+*.iml
+
+# 舊資料庫的匯出備份
+db/backup/
