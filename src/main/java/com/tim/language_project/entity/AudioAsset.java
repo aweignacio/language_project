@@ -32,7 +32,7 @@ public class AudioAsset {
     private Long id;
 
     /** 要唸出來的文字，可能是一個詞也可能是一整句。 */
-    @Column(name = "speech_text", columnDefinition = "NVARCHAR(500)", nullable = false)
+    @Column(name = "speech_text", length = 500, nullable = false)
     private String speechText;
 
     @Enumerated(EnumType.STRING)

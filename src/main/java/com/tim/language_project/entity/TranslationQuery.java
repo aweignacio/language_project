@@ -33,7 +33,7 @@ public class TranslationQuery {
     private Long id;
 
     /** 使用者輸入的原文，寫入前會先去掉頭尾空白。 */
-    @Column(name = "source_text", columnDefinition = "NVARCHAR(100)", nullable = false)
+    @Column(name = "source_text", length = 100, nullable = false)
     private String sourceText;
 
     @Enumerated(EnumType.STRING)
@@ -46,13 +46,13 @@ public class TranslationQuery {
     private SpeakerGenderEnum gender;
 
     /** 這句話的中文面。sourceText 必定與這一欄或 thaiText 其中之一相同。 */
-    @Column(name = "chinese_text", columnDefinition = "NVARCHAR(500)", nullable = false)
+    @Column(name = "chinese_text", length = 500, nullable = false)
     private String chineseText;
 
-    @Column(name = "thai_text", columnDefinition = "NVARCHAR(500)", nullable = false)
+    @Column(name = "thai_text", length = 500, nullable = false)
     private String thaiText;
 
-    @Column(name = "romanization", columnDefinition = "NVARCHAR(500)", nullable = false)
+    @Column(name = "romanization", length = 500, nullable = false)
     private String romanization;
 
     @Column(name = "created_at", insertable = false, updatable = false)

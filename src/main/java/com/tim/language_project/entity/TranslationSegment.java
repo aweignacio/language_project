@@ -31,12 +31,12 @@ public class TranslationSegment {
     @Column(name = "seq_no")
     private Integer seqNo;
 
-    @Column(name = "chinese_text", columnDefinition = "NVARCHAR(50)", nullable = false)
+    @Column(name = "chinese_text", length = 50, nullable = false)
     private String chineseText;
 
-    @Column(name = "thai_text", columnDefinition = "NVARCHAR(100)", nullable = false)
+    @Column(name = "thai_text", length = 100, nullable = false)
     private String thaiText;
 
-    @Column(name = "romanization", columnDefinition = "NVARCHAR(100)", nullable = false)
+    @Column(name = "romanization", length = 100, nullable = false)
     private String romanization;
 }

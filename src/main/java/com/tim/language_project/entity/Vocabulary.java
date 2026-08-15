@@ -34,13 +34,13 @@ public class Vocabulary {
     @Column(name = "id")
     private Long id;
 
-    @Column(name = "chinese_text", columnDefinition = "NVARCHAR(50)", nullable = false)
+    @Column(name = "chinese_text", length = 50, nullable = false)
     private String chineseText;
 
-    @Column(name = "thai_text", columnDefinition = "NVARCHAR(100)", nullable = false)
+    @Column(name = "thai_text", length = 100, nullable = false)
     private String thaiText;
 
-    @Column(name = "romanization", columnDefinition = "NVARCHAR(100)", nullable = false)
+    @Column(name = "romanization", length = 100, nullable = false)
     private String romanization;
 
     /**
@@ -58,7 +58,7 @@ public class Vocabulary {
     private PolitenessEnum politeness;
 
     /** 中文說明，例如「男生自稱，正式或對不熟的人使用」。 */
-    @Column(name = "note", columnDefinition = "NVARCHAR(200)")
+    @Column(name = "note", length = 200)
     private String note;
 
     /** 維持第一次寫入時的值；單字已存在就不會再更新這個欄位。 */
