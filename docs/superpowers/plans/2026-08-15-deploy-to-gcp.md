@@ -28,11 +28,14 @@
 
 **階段 0～4 完全不碰 GCP。** 每個階段結束時系統都可執行，隨時可以停下來。
 
-### ★ 三個必須守住的既有約束
+### ★ 五個必須守住的既有約束
 
-1. **`schema.sql` 必須維持「可重複執行且不刪資料」**，不得加入 `DROP TABLE`。要重建用 `db/reset-*.sql`。
-2. **`UQ_audio_asset_text_language` 是「同一段文字只合成一次」的保證**，拿掉會安靜地一直重複付錢。
+1. **`schema.sql` 必須維持「可重複執行且不刪資料」**，不得加入 `DROP TABLE`。要重建用 `db/reset-postgres.sql`。
+2. **`uq_audio_asset_text_language` 是「同一段文字只合成一次」的保證**，拿掉會安靜地一直重複付錢。
 3. **`SpeechTextGuard` 檢查（`AudioController` 第 31 行）是防止帳戶被燒的關卡**，不可為了效能移除。
+4. **`api_usage_log` 在重建腳本中預設不刪除**（spec 決策 15）。那是唯一能回答「這個專案花了多少錢」的地方，要清空必須手動把註解拿掉。
+5. **除非證明註解是錯的，否則不可移除任何註解。** 改寫檔案時，「為什麼這樣設計」的說明一律保留；只有描述舊技術細節（SQL Server 專屬語法）的部分可以改寫。
+   ★ 2026-08-15 的教訓：Task 4 首次執行時，計畫提供的 schema 範本本身就把四段設計說明濃縮掉了，執行者照做因而遺失。**計畫裡貼的程式碼範本也要遵守這條。**
 
 ---
 
@@ -268,11 +271,17 @@ CREATE TABLE IF NOT EXISTS translation_query
     --
     -- ★ source_text 必定與其中一面完全相同，這份重複是刻意的：
     --   source_text 專職當快取的鑰匙，另外兩欄專職表示「這句話的兩面」。
+    --   混用的話，程式每次都要先判斷方向才知道哪個欄位裝什麼，很容易寫錯。
     --
     --   例：輸入「我想喝酒」（男）
     --       source_text  = 我想喝酒
     --       chinese_text = 我想喝酒          ← 與 source_text 相同
     --       thai_text    = ผมอยากดื่มเหล้าครับ
+    --
+    --       輸入「ผมอยากดื่มเหล้าครับ」
+    --       source_text  = ผมอยากดื่มเหล้าครับ
+    --       chinese_text = 我想喝酒
+    --       thai_text    = ผมอยากดื่มเหล้าครับ ← 與 source_text 相同
     chinese_text  VARCHAR(500)  NOT NULL,
     thai_text     VARCHAR(500)  NOT NULL,
 
@@ -317,9 +326,14 @@ CREATE TABLE IF NOT EXISTS translation_query
  * 同一個詞會在不同句子的拆解中重複出現，這是正確的 ——
  * 本表記錄的是「該句話如何拆解」，而非字典。
  *
+ * 兩個方向共用同一組欄位：
+ *   中翻泰 → chinese_text 是輸入的詞，thai_text 是翻出來的
+ *   泰翻中 → thai_text 是輸入的詞，chinese_text 是翻出來的
+ *
  * ★ 泰文的句尾助詞（ครับ、ค่ะ、นะ）沒有中文意思，
  *   chinese_text 會存一個括號標籤，例如「（男性禮貌語助詞）」。
- *   不可以因為翻不出中文就把它從拆解結果裡拿掉。
+ *   不可以因為翻不出中文就把它從拆解結果裡拿掉 ——
+ *   那些是泰文最高頻的字，使用者正需要知道它們在做什麼。
  * ============================================================ */
 CREATE TABLE IF NOT EXISTS translation_segment
 (
@@ -368,7 +382,11 @@ CREATE TABLE IF NOT EXISTS vocabulary
     --
     -- ★ 與 translation_query.gender 是不同的概念：
     --   那個是「使用者是誰」，這個是「這個說法適合誰」，
-    --   而且只有這裡才有 BOTH。
+    --   而且只有這裡才有 BOTH（使用者不可能男女都是，
+    --   但一個詞可以是男女通用的，例如 กู）。
+    --
+    -- 從句子拆解沉澱下來的詞沒有這項資訊，為 NULL。
+    -- 日後單獨查詢該詞時會補上（合併規則見 TranslationPersistenceService）。
     gender_usage  VARCHAR(10)   NULL,
 
     -- PolitenessEnum：FORMAL / NEUTRAL / CASUAL / RUDE
@@ -420,6 +438,9 @@ CREATE INDEX IF NOT EXISTS ix_vocabulary_chinese_text
  *
  * 改成以文字內容為鍵之後，查得越多、覆蓋率越高，語音費用趨近於零。
  * 這是本專案「用越久越省錢」的核心。
+ *
+ * ★ 語言欄位是必要的：中文和泰文各自有自己的音檔，
+ *   存在不同的子資料夾（audio/th、audio/zh）。
  * ============================================================ */
 CREATE TABLE IF NOT EXISTS audio_asset
 (
@@ -431,9 +452,9 @@ CREATE TABLE IF NOT EXISTS audio_asset
     -- SpeechLanguageEnum：TH / ZH
     language    VARCHAR(10)   NOT NULL,
 
-    -- 相對於音檔根位置的路徑，例如 th/a1b2c3d4e5f6.wav。
-    -- ★ 本機時根位置是 audio/ 資料夾，雲端時是 Cloud Storage 的 bucket，
-    --   但這個欄位存的內容兩邊完全一樣 —— 這正是 AudioStorage 介面的用意。
+    -- 相對於 audio 資料夾的路徑，例如 th/a1b2c3d4e5f6.wav。
+    -- 系統產生的 ASCII 字串。
+    -- 前端把它接在 /audio/ 後面就是可以直接播放的網址。
     file_path   VARCHAR(100)  NOT NULL,
 
     created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -544,24 +565,44 @@ CREATE INDEX IF NOT EXISTS ix_api_usage_log_query_id
 
 ```sql
 /*
- * 資料表重建腳本 —— ★ 這支會刪掉所有資料 ★
+ * ⚠⚠⚠ 這個腳本會刪掉資料，而且救不回來 ⚠⚠⚠
  *
  * 使用時機：schema 結構改變、或想清空重來。
- * 執行順序：先跑這一支，再跑 db/schema.sql。順序不能反。
+ * 執行順序：先跑這一支，再跑 db/schema.sql 把資料表重新建起來。順序不能反。
  *
- * 依外鍵相依順序刪除：translation_segment 參考 translation_query，
- * 所以子表先走。CASCADE 讓相依的約束一併移除。
+ * ── ★ api_usage_log 刻意不刪 ★ ─────────────────────────────────────────
  *
- * 執行方式：
+ *   那是「花了多少錢」的稽核紀錄，與資料表結構無關，刪掉就永遠查不回
+ *   歷史費用了。這是 spec 決策 15 的結論。
+ *
+ *   如果你確定連費用紀錄也要清空，把最下面那一行的 -- 拿掉再執行。
+ *
+ * ── 別忘了音檔 ──────────────────────────────────────────────────────────
+ *
+ *   資料表清空後，audio/ 底下的音檔就沒有任何紀錄指向它們了。
+ *   刪掉那些檔案，並確認 audio/th 與 audio/zh 兩個子資料夾存在。
+ *
+ * ── 執行方式 ────────────────────────────────────────────────────────────
+ *
  *   docker cp db\reset-postgres.sql postgres:/tmp/reset.sql
  *   docker exec postgres psql -U postgres -d language_project -f /tmp/reset.sql
  */
 
+/* 刪除順序：有外鍵指出去的要先刪。
+ * translation_segment 的外鍵指向 translation_query，所以它排在前面。
+ * CASCADE 讓相依的約束一併移除。 */
 DROP TABLE IF EXISTS translation_segment CASCADE;
 DROP TABLE IF EXISTS translation_query   CASCADE;
 DROP TABLE IF EXISTS vocabulary          CASCADE;
 DROP TABLE IF EXISTS audio_asset         CASCADE;
-DROP TABLE IF EXISTS api_usage_log       CASCADE;
+
+/* ============================================================
+ * 費用稽核紀錄 —— 預設「不」刪除
+ *
+ * 想連費用紀錄一起清空的話，把下面那行的 -- 拿掉。
+ * 想清楚再動：這張表是唯一能回答「這個專案到目前為止花了多少錢」的地方。
+ * ============================================================ */
+-- DROP TABLE IF EXISTS api_usage_log CASCADE;
 ```
 
 - [ ] **Step 3: 建立資料表**
