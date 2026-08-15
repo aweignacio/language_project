@@ -72,3 +72,6 @@ desktop.ini
 
 # Playwright MCP 的除錯暫存檔
 .playwright-mcp/
+
+# 舊資料庫的匯出備份，屬個人紀錄不進版控
+db/backup/
