@@ -3,15 +3,26 @@
 # 使用方式：複製此檔為 application-local.yml，並填入實際值。
 # application-local.yml 已列入 .gitignore，不會進入版本控制。
 #
-# SQL Server 容器的啟動方式與連線資訊，見 C:\Tim\docker\README.md
+# PostgreSQL 容器的啟動方式：
+#   docker run -d --name postgres `
+#     -e POSTGRES_PASSWORD=你的密碼 `
+#     -e POSTGRES_DB=language_project `
+#     -e TZ=Asia/Taipei `
+#     -p 5432:5432 postgres:latest
+#
+# ★ 帳號固定是 postgres，密碼就是上面那行 POSTGRES_PASSWORD 自己設的值。
 
 spring:
   datasource:
-    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
-    url: jdbc:sqlserver://localhost:1433;databaseName=language_project;encrypt=false
-    username: sa
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://localhost:5432/language_project
+    username: postgres
     password: 請填入資料庫密碼
 
   ai:
     openai:
       api-key: 請填入 OpenAI API Key
+
+google:
+  speech:
+    api-key: 請填入 Google Cloud Text-to-Speech API Key
