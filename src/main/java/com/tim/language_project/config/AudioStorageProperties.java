@@ -27,7 +27,18 @@ public class AudioStorageProperties {
      */
     private String provider = "LOCAL";
 
+    /**
+     * 本機模式的音檔資料夾，相對於程式的工作目錄。provider 為 LOCAL 時才會用到。
+     */
     private String directory = "audio";
+
+    /**
+     * Cloud Storage 的 bucket 名稱。provider 為 GCS 時才會用到。
+     *
+     * bucket 是 Cloud Storage 裡「一個獨立的儲存空間」，名稱在全世界不可重複。
+     * 雲端的值由 Cloud Run 的環境變數 GCS_BUCKET 帶進來。
+     */
+    private String bucket;
 
     /**
      * 查詢完成時要自動產生哪些語言的音檔（涵蓋整句與多重說法）。

@@ -2531,15 +2531,23 @@ docker rm -f thailan
 
 在 `pom.xml` 的 `<dependencies>` 加入：
 
+版本號集中在 `<properties>`：
+
+```xml
+        <google-cloud-storage.version>2.69.0</google-cloud-storage.version>
+```
+
 ```xml
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloud-storage</artifactId>
-            <version>2.43.2</version>
+            <version>${google-cloud-storage.version}</version>
         </dependency>
 ```
 
-★ 版本號請以 <https://central.sonatype.com/artifact/com.google.cloud/google-cloud-storage> 上的最新穩定版為準，上面是撰寫時的版本。
+★ 2026-08-15 實測當下的最新穩定版為 **2.69.0**（查詢方式：`Invoke-RestMethod "https://search.maven.org/solrsearch/select?q=g:com.google.cloud+AND+a:google-cloud-storage&core=gav&rows=5&wt=json"`）。
+
+★ 這個相依會讓映像檔變大約 100MB（從 546MB 到 644MB），因為它會帶進 gRPC、protobuf、guava。屬正常，不需處理。
 
 - [ ] **Step 2: 加入 bucket 設定欄位**
 

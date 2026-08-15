@@ -29,6 +29,7 @@
     <properties>
         <java.version>21</java.version>
         <spring-ai.version>2.0.0</spring-ai.version>
+        <google-cloud-storage.version>2.69.0</google-cloud-storage.version>
     </properties>
     <dependencies>
         <dependency>
@@ -71,6 +72,17 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!--
+            Cloud Storage 的客戶端。雲端把音檔存在這裡，因為 Cloud Run 的容器
+            是用完就丟的，寫在容器裡的檔案每次重新部署都會消失。
+            僅在 audio.storage.provider=GCS 時才會被用到。
+        -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-storage</artifactId>
+            <version>${google-cloud-storage.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
