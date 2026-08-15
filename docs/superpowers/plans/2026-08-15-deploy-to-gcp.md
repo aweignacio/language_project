@@ -2979,34 +2979,35 @@ gcloud auth login
 
 會開啟瀏覽器，選擇你的 Google 帳號並允許。
 
-- [ ] **Step 3: 建立專案**
+- [x] **Step 3: 沿用既有專案，不另外建立** — 2026-08-15 決定
 
-```powershell
-gcloud projects create thailan-app --name="ThaiLan"
-gcloud config set project thailan-app
+★ **不要建新專案。** Awei 早就有一個 `Thai-Language` 專案，Google TTS 的金鑰就掛在上面：
+
+```
+專案 ID：thai-language-505602
+帳單帳戶：01F274-997C08-048B75（已連結，狀態 OPEN）
+已啟用：texttospeech、storage
 ```
 
-★ 專案 ID 全球唯一，`thailan-app` 若被佔用，換成 `thailan-app-awei` 之類，**並在後續所有指令中一致使用你實際採用的 ID**。
-
-- [ ] **Step 4: 把專案連上帳單帳戶**
+用既有的好處：TTS 金鑰現成不用重發、**語音與主機的花費在同一份帳單裡看得到全貌**。
 
 ```powershell
-gcloud billing accounts list
+gcloud config set project thai-language-505602
 ```
 
-記下 `ACCOUNT_ID`，然後：
+- [x] **Step 4: 帳單帳戶** — 已連結，無須處理
+
+- [x] **Step 5: 啟用需要的 API** — 2026-08-15 完成
+
+`storage` 與 `texttospeech` 原本就開著，實際只需補這 4 個：
 
 ```powershell
-gcloud billing projects link thailan-app --billing-account=你的ACCOUNT_ID
+gcloud services enable run.googleapis.com sqladmin.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com --project=thai-language-505602
 ```
 
-- [ ] **Step 5: 啟用需要的 API**
+預期：`Operation ... finished successfully.`（約 30 秒）
 
-```powershell
-gcloud services enable run.googleapis.com sqladmin.googleapis.com storage.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com texttospeech.googleapis.com
-```
-
-預期：`Operation ... finished successfully.`（可能需要 1～2 分鐘）
+★ 「啟用 API」的意義：GCP 每個專案預設幾乎所有服務都是關的，沒啟用就呼叫會拿到 **403**（`API has not been used in project ... or it is disabled`）。這是防呆，也是防帳單暴衝。
 
 - [ ] **Step 6: 設定預設區域**
 
@@ -3018,9 +3019,49 @@ gcloud config set run/region asia-east1
 
 ## Task 18: 建立 Cloud SQL
 
+### ⚠️ 走 Console 建立時的兩個陷阱（2026-08-15 實地踩到）
+
+**陷阱一：「免付費試用 Cloud SQL 30 天」促銷面板**
+
+專案還沒有任何執行個體、且帳號在試用期時，Console 會硬推這個面板。**不可以用**：
+
+- 區域寫死 `us-central1`（美國愛荷華），與我們要的 `asia-east1` 不同區，會產生跨區流量費並增加延遲
+- 規格是 **Enterprise Plus 8 vCPU / 64 GB**，30 天後按正常價計費，**每月數百美元**
+
+繞過方式：左側選單 **「執行個體」→「建立執行個體」→ PostgreSQL**（用介面導覽，不要打網址；`/sql/create-instance/postgres` 與 `/sql/choose-instance-engine` 這兩個網址實測都是 404）。
+
+**陷阱二：三張預設卡片全都太大**
+
+進到表單後會看到「正式環境 / 開發 / 沙箱」三張卡，**最小的沙箱仍是 2 vCPU / 8 GB**。若直接沿用「正式環境」，右側費用估算會顯示 **US$1.23／小時（約每月 US$900）**，$300 額度十天就燒光。
+
+★ **右側的「費用估算」面板會即時更新，改設定時盯著它就對了。目標是 US$0.01／小時。**
+
+### 實際採用的設定（已驗證費用為 US$0.01／小時）
+
+| 欄位 | 值 | 備註 |
+|---|---|---|
+| Cloud SQL 版本 | **Enterprise** | 不是 Enterprise Plus |
+| 執行個體 ID | `thailan-db` | ★ 建立後不可改 |
+| 密碼 | 自訂 | `postgres` 使用者的密碼，可隨時改 |
+| 資料庫版本 | **PostgreSQL 18** | 與本機同版，這是階段 1 的前提 |
+| 區域 | **asia-east1（台灣）** | ★ 建立後不可改，必須與 Cloud Run、Storage 同區 |
+| 可用區可用性 | **單一可用區** | 多可用區會多開待命 VM，約 +US$0.61／小時 |
+| 機器類型 | **共用核心 1 vCPU / 0.614 GB**（`db-f1-micro`） | 本機實測 512 MB 就跑得動 |
+| 儲存空間 | **10 GB SSD** | |
+| 時間點復原 | **保持啟用** | |
+| 連線 | 公開 IP，**不加任何授權網路** | 見下方說明 |
+
+★ **儲存空間選 SSD 而非 HDD**：10 GiB 的差額只有每月 US$0.80（$0.90 vs $1.70），而機器本身就要 US$7.3。省那 25 塊台幣去換較差的 IOPS 不划算。同理，**時間點復原也不需要關掉**，它的成本是每月幾分錢。
+
+★ **公開 IP 開著但不授權任何網路是正確狀態**：Cloud Run 走 Cloud SQL 連接器（Google 內部通道，不經公開網路）；本機要連時用 `gcloud sql connect`，它會臨時把當下 IP 加進白名單，用完自動移除。
+
+★ **使用者的所在地與資料庫設定無關**。使用者連的是 Cloud Run 的網址，資料庫只有 Cloud Run 連得到，從不對外開放。
+
 - [ ] **Step 1: 建立 PostgreSQL 執行個體**
 
-★ 這一步要等 **5～10 分鐘**，屬正常。
+依上表在 Console 建立。★ 這一步要等 **5～10 分鐘**，屬正常。
+
+（若要改用指令建立，等價寫法如下，但走 Console 才看得到各欄位的意義：）
 
 ```powershell
 gcloud sql instances create thailan-db --database-version=POSTGRES_17 --tier=db-f1-micro --region=asia-east1 --storage-size=10GB --storage-type=HDD
