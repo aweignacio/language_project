@@ -59,10 +59,19 @@ FROM eclipse-temurin:21-jre-alpine AS runtime
 WORKDIR /app
 
 # 不用 root 執行。萬一程式被攻破，攻擊者拿到的權限也有限。
-RUN addgroup -S app && adduser -S app -G app
+#
+# ★ chown 這一段不可省略（2026-08-15 實測踩到的坑）：
+#   WORKDIR 建出來的 /app 屬於 root，切換成 app 身分後就寫不進去了。
+#   症狀非常隱蔽 —— 翻譯查詢會「成功」，只有音檔默默消失，
+#   因為存檔失敗依設計只讓語音失敗、不影響翻譯結果。
+#   畫面上看起來一切正常，你只會覺得「怎麼沒聲音」。
+#
+#   雲端正式跑的時候音檔存在 Cloud Storage、不寫本機磁碟，
+#   但容器仍然必須是可寫的，否則任何以 LOCAL 模式啟動的情況都會中招。
+RUN addgroup -S app && adduser -S app -G app && chown app:app /app
 USER app
 
-COPY --from=backend-build /build/target/*.jar app.jar
+COPY --from=backend-build --chown=app:app /build/target/*.jar app.jar
 
 # Cloud Run 會透過 PORT 環境變數告訴容器要聽哪個埠，預設 8080。
 ENV PORT=8080

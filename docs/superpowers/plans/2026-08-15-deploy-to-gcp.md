@@ -3043,15 +3043,20 @@ gcloud projects add-iam-policy-binding thailan-app --member="serviceAccount:thai
 
 ## Task 20: 首次部署到 Cloud Run
 
-- [ ] **Step 1: 決定記憶體規格**
+- [x] **Step 1: 決定記憶體規格** — 已於 2026-08-15 實測
 
-依 Task 15 Step 9 與 Task 6 Step 9 的量測結果：
+**結論：`--memory 512Mi`。**
 
-| 量測結果 | Cloud Run `--memory` |
+實測方式與數據（`docker run --memory 512m --memory-swap 512m`，即與 Cloud Run 相同的硬上限）：
+
+| 項目 | 結果 |
 |---|---|
-| `-Xmx400m` 跑得動 | `512Mi` |
-| 需要 `-Xmx700m` | `1Gi` |
-| 更高 | `2Gi` |
+| 啟動 | 成功，11.2 秒 |
+| 音檔合成（最吃記憶體的路徑） | 成功 |
+| 記憶體峰值 | **326 MiB / 512 MiB（64%）** |
+| `State.OOMKilled` | `false`，重啟 0 次 |
+
+★ **量測時一定要設 `--memory` 硬上限。** 不設的話容器看得到整台機器的記憶體，`MaxRAMPercentage=75` 就照那個比例配，量到的數字（本機是 416 MiB）完全不能代表 512Mi 環境下的行為。
 
 - [ ] **Step 2: 部署**
 
