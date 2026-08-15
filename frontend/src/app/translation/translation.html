@@ -135,23 +135,33 @@
             [class.wordplay--ready]="translation.chineseAudioUrl"
             [class.wordplay--loading]="isSynthesizing(translation.chineseText)"
             [attr.aria-label]="'播放中文 ' + translation.chineseText"
-            (click)="playChinese(translation)">
+            (click)="playSentence(translation, 'ZH')">
             {{ isSynthesizing(translation.chineseText) ? '···' : '▶' }}
           </button>
         </p>
       }
 
-      <!-- thaiAudioUrl 為 null 代表語音沒生出來，此時整顆播放鍵不出現 -->
-      @if (translation.thaiAudioUrl) {
-        <button class="play" type="button" (click)="play()">
-          <span class="play__icon" aria-hidden="true">
-            <svg viewBox="0 0 12 12" width="9" height="9" fill="currentColor">
-              <path d="M2 0.6 11 6 2 11.4z" />
-            </svg>
-          </span>
-          播放發音
-        </button>
-      }
+      <!--
+        ★ 這顆鍵「永遠都在」，不可以改成「有音檔才顯示」。
+          沒音檔時顯示成灰色，點下去才生 —— 跟逐詞、說法的鍵behaviour一致。
+
+          藏起來的話會變成死結：快取路徑刻意只查現成的音檔、不合成，
+          而唯一能補生的入口就是這顆鍵，鍵消失了就永遠生不出來。
+      -->
+      <button
+        class="play"
+        type="button"
+        [class.play--pending]="!translation.thaiAudioUrl"
+        [disabled]="isSynthesizing(translation.thaiText)"
+        (click)="playSentence(translation, 'TH')">
+        <span class="play__icon" aria-hidden="true">
+          <svg viewBox="0 0 12 12" width="9" height="9" fill="currentColor">
+            <path d="M2 0.6 11 6 2 11.4z" />
+          </svg>
+        </span>
+        {{ isSynthesizing(translation.thaiText) ? '產生中…'
+         : translation.thaiAudioUrl ? '播放發音' : '產生發音' }}
+      </button>
 
       <!--
         各種說法。只有查「單一個詞」時才有內容（查句子時是空陣列）。

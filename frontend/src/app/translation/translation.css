@@ -484,6 +484,24 @@
   transition: background 0.3s;
 }
 
+/*
+ * 還沒有音檔的狀態：邊框與文字都轉灰，看得出「這顆還沒準備好，點了才生」。
+ * 刻意不用 disabled —— 它是可以按的，按下去就是去產生。
+ */
+.play--pending {
+  color: var(--ivory-faint);
+  border-color: rgba(241, 233, 218, 0.18);
+}
+
+.play--pending .play__icon {
+  background: rgba(241, 233, 218, 0.1);
+}
+
+.play:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+
 /* 滑過時整顆反白成金底深字，變成整張卡片裡最想被按的東西 */
 .play:hover {
   color: var(--ink-900);

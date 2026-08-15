@@ -410,24 +410,33 @@ export class Translation {
     return this.synthesizing().has(speechText);
   }
 
-  /** 播放整句泰文，音量放大 AUDIO_GAIN 倍。 */
-  protected play(): void {
-    this.playAudio(this.result()?.thaiAudioUrl);
-  }
-
   /**
-   * 播放整句的中文翻譯結果（只有泰翻中時畫面上才有這顆鍵）。
+   * 播放整句（泰文或中文）。
    *
-   * 後端在泰翻中時就會自動生好中文音檔，所以正常情況下這顆鍵一開始就是亮的。
-   * 萬一那次合成失敗（網路問題等），這裡照樣走「點了才生」那條路重試。
+   * ★ 沒有音檔時「不可以把按鈕藏起來」。
+   *
+   *   2026-08-15 踩到的坑：原本整句的播放鍵寫成「有音檔才顯示」，
+   *   結果把舊音檔清空之後，走快取的查詢就再也生不出整句的聲音 ——
+   *   快取路徑刻意只查現成的、不合成（那是省錢的設計），
+   *   而唯一能補生的入口是那顆按鈕，按鈕又因為沒音檔而消失了。死結。
+   *
+   *   逐詞與說法的鍵本來就是「永遠都在、灰色代表還沒生」，
+   *   這裡改成同樣的行為，三種鍵一致。
    */
-  protected playChinese(translation: TranslationResponse): void {
-    if (translation.chineseAudioUrl) {
-      this.playAudio(translation.chineseAudioUrl);
+  protected playSentence(translation: TranslationResponse,
+                         language: SpeechLanguage): void {
+    const existingUrl = language === 'TH'
+      ? translation.thaiAudioUrl
+      : translation.chineseAudioUrl;
+
+    if (existingUrl) {
+      this.playAudio(existingUrl);
       return;
     }
 
-    const speechText = translation.chineseText;
+    const speechText = language === 'TH'
+      ? translation.thaiText
+      : translation.chineseText;
 
     if (this.isSynthesizing(speechText)) {
       return;
@@ -435,13 +444,19 @@ export class Translation {
 
     this.markSynthesizing(speechText, true);
 
-    this.translationService.synthesize(speechText, 'ZH').subscribe({
+    this.translationService.synthesize(speechText, language).subscribe({
       next: (response) => {
         this.markSynthesizing(speechText, false);
-        this.result.set({ ...translation, chineseAudioUrl: response.audioUrl });
+
+        // 訊號要換一個新物件才會通知畫面重畫，直接改欄位沒有用。
+        this.result.set(language === 'TH'
+          ? { ...translation, thaiAudioUrl: response.audioUrl }
+          : { ...translation, chineseAudioUrl: response.audioUrl });
+
         this.playAudio(response.audioUrl);
       },
       error: () => {
+        // 失敗就讓按鈕回到灰色，使用者可以再點一次重試。
         this.markSynthesizing(speechText, false);
       },
     });
