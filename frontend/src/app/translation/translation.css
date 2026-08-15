@@ -12,7 +12,7 @@
   max-width: 800px;
   margin: 0 auto;
   /* clamp(最小, 隨寬度變, 最大)：手機留窄一點，桌機留寬一點，不必寫兩套 */
-  padding: clamp(2.5rem, 6vw, 4.5rem) 1.5rem 6rem;
+  padding: clamp(2rem, 5vw, 3.4rem) 1.5rem 3rem;
   /* 裝飾字刻意超出右邊界，這行把超出去的部分切掉，避免整頁能左右捲 */
   overflow-x: clip;
 }
@@ -351,7 +351,7 @@
 
 .result {
   position: relative;
-  margin-top: 2.6rem;
+  margin-top: 1.8rem;
   padding: clamp(1.5rem, 4vw, 2.3rem);
   background: linear-gradient(160deg, rgba(241, 233, 218, 0.05), rgba(241, 233, 218, 0.015));
   border: 1px solid var(--line);
@@ -446,7 +446,7 @@
 
 /* 拼音用等寬字，字距拉開，方便一個音節一個音節對著念 */
 .result__romanization {
-  margin: 0.8rem 0 0;
+  margin: 0.55rem 0 0;
   font-family: var(--font-mono);
   font-size: 0.95rem;
   letter-spacing: 0.06em;
@@ -459,8 +459,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
-  margin-top: 1.7rem;
-  padding: 0.5rem 1.15rem 0.5rem 0.5rem;
+  margin-top: 1.1rem;
+  padding: 0.45rem 1.1rem 0.45rem 0.45rem;
   font-family: var(--font-serif);
   font-size: 0.88rem;
   letter-spacing: 0.12em;
@@ -672,11 +672,11 @@
 /* ─── 各種說法 ─────────────────────────────────────────────────────────── */
 
 .variants {
-  margin-top: 2.2rem;
+  margin-top: 1.5rem;
 }
 
 .variants__caption {
-  margin: 0 0 0.9rem;
+  margin: 0 0 0.6rem;
   font-family: var(--font-serif);
   font-size: 0.72rem;
   font-weight: 400;
@@ -691,7 +691,7 @@
 }
 
 .variants__item {
-  padding: 0.95rem 0 0.95rem 0.9rem;
+  padding: 0.6rem 0 0.6rem 0.85rem;
   border-bottom: 1px solid rgba(230, 198, 126, 0.08);
   /* 左側預留一條線的位置，符合性別的那幾筆才會亮起來 */
   border-left: 2px solid transparent;
@@ -721,17 +721,20 @@
   color: var(--ivory-dim);
 }
 
+/*
+ * 標籤現在跟泰文同一列（見 translation.html），所以不需要自己的上距。
+ * 保留 display:flex 讓幾個標籤之間有固定間隔，並在窄螢幕時整組一起折行。
+ */
 .variants__tags {
   display: flex;
   gap: 0.4rem;
   flex-wrap: wrap;
-  margin-top: 0.5rem;
 }
 
 .variants__note {
-  margin: 0.5rem 0 0;
+  margin: 0.35rem 0 0;
   font-size: 0.84rem;
-  line-height: 1.7;
+  line-height: 1.55;
   color: var(--ivory-dim);
 }
 
@@ -834,5 +837,18 @@
   .segments__chinese {
     font-size: 0.85rem;
     color: var(--ivory-dim);
+  }
+
+  /*
+   * 說法的標籤在桌機是跟泰文擠同一行（省掉一整列），
+   * 但手機寬度不夠，讓它們硬擠會折得很亂 ——
+   * 播放鍵被推到標籤中間、兩個標籤又拆成上下兩行。
+   *
+   * flex-basis: 100% 是在說「這一組一定要自己佔滿一行」，
+   * 於是它整組被推到下一列，變回乾淨的兩行結構。
+   */
+  .variants__tags {
+    flex-basis: 100%;
+    margin-top: 0.35rem;
   }
 }

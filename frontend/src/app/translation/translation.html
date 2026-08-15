@@ -191,26 +191,35 @@
                     (click)="playOrSynthesize(variant, 'TH')">
                     {{ isSynthesizing(variant.thaiText) ? '···' : '▶' }}
                   </button>
-                </div>
 
-                <div class="variants__tags">
-                  <span class="tag tag--gender">
-                    {{ variant.genderUsage === 'MALE' ? '男性'
-                     : variant.genderUsage === 'FEMALE' ? '女性' : '不分性別' }}
-                  </span>
+                  <!--
+                    ★ 標籤這一組放在「主列裡面」，不是自己一列。
 
-                  <!-- ★ RUDE 用警示色。用錯場合的後果是冒犯到人，不是講得不夠好 -->
-                  <span class="tag"
-                        [class.tag--rude]="variant.politeness === 'RUDE'"
-                        [class.tag--politeness]="variant.politeness !== 'RUDE'">
-                    {{ variant.politeness === 'FORMAL' ? '正式'
-                     : variant.politeness === 'NEUTRAL' ? '一般'
-                     : variant.politeness === 'CASUAL' ? '隨性' : '粗俗' }}
-                  </span>
+                    分成兩列的話每個說法會多佔一整行，五個說法就多捲一個畫面。
+                    包一層 div 是為了讓它們在窄螢幕時「整組一起」折到下一行
+                    （見 css 的 .variants__tags flex-basis），
+                    不包的話會折得七零八落：播放鍵被推到標籤中間、
+                    兩個標籤又拆到不同行。
+                  -->
+                  <div class="variants__tags">
+                    <span class="tag tag--gender">
+                      {{ variant.genderUsage === 'MALE' ? '男性'
+                       : variant.genderUsage === 'FEMALE' ? '女性' : '不分性別' }}
+                    </span>
 
-                  @if (first && matchesGender(variant)) {
-                    <span class="tag tag--suggested">★ 適合你</span>
-                  }
+                    <!-- ★ RUDE 用警示色。用錯場合的後果是冒犯到人，不是講得不夠好 -->
+                    <span class="tag"
+                          [class.tag--rude]="variant.politeness === 'RUDE'"
+                          [class.tag--politeness]="variant.politeness !== 'RUDE'">
+                      {{ variant.politeness === 'FORMAL' ? '正式'
+                       : variant.politeness === 'NEUTRAL' ? '一般'
+                       : variant.politeness === 'CASUAL' ? '隨性' : '粗俗' }}
+                    </span>
+
+                    @if (first && matchesGender(variant)) {
+                      <span class="tag tag--suggested">★ 適合你</span>
+                    }
+                  </div>
                 </div>
 
                 @if (variant.note) {
