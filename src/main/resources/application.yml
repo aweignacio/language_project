@@ -87,6 +87,34 @@ ai:
       #   單價數字碰巧一樣是 0.000015，是巧合，不是沒改到。）
       speech-price: 0.00001500
 
+speech:
+  # 語音要用哪一家。GOOGLE / OPENAI，兩份實作都在，切這一行就換人。
+  #
+  # ★ 2026-08-15 從 OPENAI 換成 GOOGLE，原因是發音不道地：
+  #   OpenAI 的聲音全部是拿英文訓練的，它沒有泰語發音模型，
+  #   等於「用英文的嘴唸泰文」，ครับ 會唸成英文的 krab。
+  #   Google 有 th-TH 的原生泰語聲音，腔調才對。
+  #
+  # ★ 只有「唸出來」換家，翻譯仍然是 OpenAI 的 gpt-5.5。
+  provider: GOOGLE
+
+google:
+  speech:
+    # 泰語男聲。th-TH 的男聲全部是 Chirp3-HD 系列（另外兩個非 Chirp 的都是女聲）。
+    # 換聲音只要改這一行，可用清單見規格書。
+    thai-voice: th-TH-Chirp3-HD-Charon
+
+    # 中文用台灣華語的男聲。WaveNet 不是生成式的，跨句子穩定。
+    chinese-voice: cmn-TW-Wavenet-B
+
+    # 每一個字元的美金價格。
+    # Chirp3-HD 屬於高階聲音，且每月有免費額度 ——
+    # ★ 這個數字請依 Google 當下的定價頁確認後再填，填錯只會讓帳面失真，
+    #   不影響功能。免費額度內實際上是 0 元。
+    price-per-character: 0.00003000
+
+    # 金鑰在 application-local.yml，不進版本控制。
+
 audio:
   storage:
     # 音檔存放資料夾。已列入 .gitignore，不進版本控制。

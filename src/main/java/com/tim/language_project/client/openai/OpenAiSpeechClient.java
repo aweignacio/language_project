@@ -139,6 +139,7 @@ import com.tim.language_project.enums.SpeechLanguageEnum;
 import com.tim.language_project.enums.UsageUnitTypeEnum;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.audio.tts.TextToSpeechModel;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ObjectUtils;
@@ -154,8 +155,16 @@ import java.util.UUID;
  * 以 OpenAI 的語音模型把一段文字轉成 mp3，依語言存進 audio 底下的子資料夾。
  * 任何失敗都吞下來回傳空結果，語音問題絕不影響外層的翻譯。
  */
+/*
+ * ★ 2026-08-15 起這個實作預設「不會」被建立出來。
+ *
+ *   泰語發音改用 Google（見 GoogleSpeechClient 的說明：OpenAI 的聲音
+ *   全是英文訓練的，唸泰文會有英文腔）。這份保留著當備援 ——
+ *   Google 出問題時，把 speech.provider 改成 OPENAI 就能立刻切回來。
+ */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "speech.provider", havingValue = "OPENAI")
 public class OpenAiSpeechClient implements SpeechClient {
 
     /** 已經算是「講完一句話」的結尾字元，遇到這些就不再補句點。 */

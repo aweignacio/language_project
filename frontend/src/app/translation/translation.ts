@@ -198,10 +198,17 @@ import {
 import { TranslationService } from '../services/translation-service';
 
 /**
- * 音量放大倍率。1 是原音量，OpenAI 的泰文音檔偏小，需要放大才聽得清楚。
- * 原本設 3 倍，2026-08-14 實測音量峰值會削頂產生輕微爆音，調降為 2 倍。
+ * 音量放大倍率。1 是原音量。
+ *
+ * ★ 2026-08-15 從 2 倍改回 1 倍。
+ *
+ *   放大是為了救 OpenAI 那些偏小聲的音檔。改用 Google 之後，後端在存檔前
+ *   就把每個音檔都正規化到同一個峰值（見 WavAudio），所以每個檔案本來就
+ *   一樣大聲，這裡再乘 2 只會削頂破音。
+ *
+ *   放大鏈本身保留著 —— 日後若要調整音量，改這個數字就好。
  */
-const AUDIO_GAIN = 2;
+const AUDIO_GAIN = 1;
 
 /** 後端在「AI 判定翻不出來」時回的錯誤碼，要當成正常結果顯示。 */
 const CODE_UNTRANSLATABLE = 'INPUT_UNSUPPORTED_CONTENT';

@@ -100,7 +100,7 @@ import java.nio.file.Paths;
  * 讓這個類別載入到哪裡，設定就跟到哪裡。
  */
 @Configuration
-@EnableConfigurationProperties(AudioStorageProperties.class)
+@EnableConfigurationProperties({AudioStorageProperties.class, GoogleSpeechProperties.class})
 @RequiredArgsConstructor
 public class WebMvcConfig implements WebMvcConfigurer {
 
