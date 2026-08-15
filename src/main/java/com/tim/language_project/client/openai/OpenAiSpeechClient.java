@@ -129,9 +129,9 @@ package com.tim.language_project.client.openai;
  */
 
 import com.tim.language_project.client.SpeechClient;
+import com.tim.language_project.client.storage.AudioStorage;
 import com.tim.language_project.client.usage.ApiUsageRecorder;
 import com.tim.language_project.config.AiPricingProperties;
-import com.tim.language_project.config.AudioStorageProperties;
 import com.tim.language_project.enums.AiProviderEnum;
 import com.tim.language_project.enums.AiServiceTypeEnum;
 import com.tim.language_project.enums.SpeechFailureReasonEnum;
@@ -145,11 +145,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.ObjectUtils;
 
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * 以 OpenAI 的語音模型把一段文字轉成 mp3，依語言存進 audio 底下的子資料夾。
@@ -176,20 +172,20 @@ public class OpenAiSpeechClient implements SpeechClient {
 
     private final AiPricingProperties pricingProperties;
 
-    private final AudioStorageProperties audioStorageProperties;
+    private final AudioStorage audioStorage;
 
     private final String modelName;
 
     public OpenAiSpeechClient(TextToSpeechModel textToSpeechModel,
                               ApiUsageRecorder apiUsageRecorder,
                               AiPricingProperties pricingProperties,
-                              AudioStorageProperties audioStorageProperties,
+                              AudioStorage audioStorage,
                               @Value("${spring.ai.openai.audio.speech.model:gpt-4o-mini-tts}")
                               String modelName) {
         this.textToSpeechModel = textToSpeechModel;
         this.apiUsageRecorder = apiUsageRecorder;
         this.pricingProperties = pricingProperties;
-        this.audioStorageProperties = audioStorageProperties;
+        this.audioStorage = audioStorage;
         this.modelName = modelName;
     }
 
@@ -218,26 +214,22 @@ public class OpenAiSpeechClient implements SpeechClient {
             return Optional.empty();
         }
 
-        try {
-            // 相對路徑，例如 th/a1b2c3d4e5f6.mp3。
-            // 前端把它接在 /audio/ 後面就是可以直接播放的網址。
-            String filePath = language.getFolderName() + "/" + newFileName();
-            Path directory = Paths.get(audioStorageProperties.getDirectory())
-                    .resolve(language.getFolderName());
+        // 存到哪裡由 AudioStorage 決定 —— 本機是 audio 資料夾，雲端是 Cloud Storage。
+        //
+        // ★ 副檔名是 mp3 不是 wav：OpenAI 依 response-format 設定直接回 mp3，
+        //   跟 Google 那條路（LINEAR16 → wav）不一樣，所以要各自明講。
+        Optional<String> filePath = audioStorage.save(language, audioBytes, "mp3");
 
-            Files.createDirectories(directory);
-            Files.write(Paths.get(audioStorageProperties.getDirectory()).resolve(filePath),
-                    audioBytes);
-
-            recordUsage(spokenText.length(), true);
-
-            return Optional.of(filePath);
-        } catch (Exception exception) {
+        if (filePath.isEmpty()) {
             // 聲音已經拿到了，錢也付了，是我們自己沒存下來。
             recordFailure(SpeechFailureReasonEnum.FILE_SAVE_FAILED,
-                    spokenText.length(), exception);
+                    spokenText.length(), null);
             return Optional.empty();
         }
+
+        recordUsage(spokenText.length(), true);
+
+        return filePath;
     }
 
     /**
@@ -293,13 +285,5 @@ public class OpenAiSpeechClient implements SpeechClient {
                 pricingProperties.getSpeechPrice(),
                 BigDecimal.ZERO,
                 success);
-    }
-
-    /**
-     * 隨機檔名，避免使用者輸入的內容（空白、斜線、表情符號）跑進檔名。
-     * 不含資料夾 —— 要放進 th/ 還是 zh/ 由 language 決定。
-     */
-    private String newFileName() {
-        return UUID.randomUUID().toString().replace("-", "").substring(0, 12) + ".mp3";
     }
 }

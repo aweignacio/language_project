@@ -36,8 +36,16 @@ package com.tim.language_project.client.openai;
  *                textToSpeechModel,      ← 假的（不會連 OpenAI）
  *                apiUsageRecorder,       ← 假的（不會寫資料庫）
  *                pricingProperties,      ← 真的
- *                audioStorageProperties, ← 真的，但資料夾指向臨時資料夾
+ *                audioStorage,           ← 真的 LocalDiskAudioStorage，
+ *                                          但資料夾指向臨時資料夾
  *                "gpt-4o-mini-tts");
+ *
+ *    ★ 2026-08-15 起：寫檔這件事已經搬到 AudioStorage 身上
+ *      （見 client/storage/LocalDiskAudioStorage），OpenAiSpeechClient
+ *      自己不再碰檔案系統。這裡刻意用「真的」LocalDiskAudioStorage
+ *      而不是 Mockito 的假物件，理由是：如果換成假的，
+ *      「檔案真的寫到硬碟上了嗎」這件事就測不到，
+ *      只剩「有沒有呼叫到某個方法」，等於白白弱化了這支測試。
  *
  * ── 第 4 步｜以測試一為例 ───────────────────────────────────────────────
  *
@@ -102,6 +110,8 @@ package com.tim.language_project.client.openai;
  *    測試七  中文的資料夾      防：中文音檔沒進 zh/
  */
 
+import com.tim.language_project.client.storage.AudioStorage;
+import com.tim.language_project.client.storage.LocalDiskAudioStorage;
 import com.tim.language_project.client.usage.ApiUsageRecorder;
 import com.tim.language_project.config.AiPricingProperties;
 import com.tim.language_project.config.AudioStorageProperties;
@@ -161,10 +171,11 @@ class OpenAiSpeechClientTest {
 
         AudioStorageProperties audioStorageProperties = new AudioStorageProperties();
         audioStorageProperties.setDirectory(tempDirectory.toString());
+        AudioStorage audioStorage = new LocalDiskAudioStorage(audioStorageProperties);
 
         openAiSpeechClient = new OpenAiSpeechClient(
                 textToSpeechModel, apiUsageRecorder,
-                pricingProperties, audioStorageProperties, "gpt-4o-mini-tts");
+                pricingProperties, audioStorage, "gpt-4o-mini-tts");
     }
 
     /*
@@ -275,10 +286,11 @@ class OpenAiSpeechClientTest {
 
         AudioStorageProperties audioStorageProperties = new AudioStorageProperties();
         audioStorageProperties.setDirectory(blockingFile.toString());
+        AudioStorage blockedAudioStorage = new LocalDiskAudioStorage(audioStorageProperties);
 
         OpenAiSpeechClient blockedClient = new OpenAiSpeechClient(
                 textToSpeechModel, apiUsageRecorder,
-                pricingProperties, audioStorageProperties, "gpt-4o-mini-tts");
+                pricingProperties, blockedAudioStorage, "gpt-4o-mini-tts");
 
         given(textToSpeechModel.call(SPOKEN_TEXT)).willReturn(new byte[]{1, 2, 3});
 

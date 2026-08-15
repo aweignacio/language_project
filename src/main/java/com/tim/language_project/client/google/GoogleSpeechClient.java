@@ -87,8 +87,8 @@ package com.tim.language_project.client.google;
  */
 
 import com.tim.language_project.client.SpeechClient;
+import com.tim.language_project.client.storage.AudioStorage;
 import com.tim.language_project.client.usage.ApiUsageRecorder;
-import com.tim.language_project.config.AudioStorageProperties;
 import com.tim.language_project.config.GoogleSpeechProperties;
 import com.tim.language_project.enums.AiProviderEnum;
 import com.tim.language_project.enums.AiServiceTypeEnum;
@@ -102,14 +102,10 @@ import org.springframework.util.ObjectUtils;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * 以 Google Cloud Text-to-Speech 合成語音，存成剪過靜音、音量一致的 WAV。
@@ -134,16 +130,16 @@ public class GoogleSpeechClient implements SpeechClient {
 
     private final GoogleSpeechProperties googleSpeechProperties;
 
-    private final AudioStorageProperties audioStorageProperties;
+    private final AudioStorage audioStorage;
 
     public GoogleSpeechClient(RestClient.Builder restClientBuilder,
                               ApiUsageRecorder apiUsageRecorder,
                               GoogleSpeechProperties googleSpeechProperties,
-                              AudioStorageProperties audioStorageProperties) {
+                              AudioStorage audioStorage) {
         this.restClient = restClientBuilder.build();
         this.apiUsageRecorder = apiUsageRecorder;
         this.googleSpeechProperties = googleSpeechProperties;
-        this.audioStorageProperties = audioStorageProperties;
+        this.audioStorage = audioStorage;
     }
 
     @Override
@@ -180,24 +176,23 @@ public class GoogleSpeechClient implements SpeechClient {
             return Optional.empty();
         }
 
-        try {
-            String filePath = language.getFolderName() + "/" + newFileName();
-            Path directory = Paths.get(audioStorageProperties.getDirectory())
-                    .resolve(language.getFolderName());
+        // 存到哪裡由 AudioStorage 決定 —— 本機是 audio 資料夾，雲端是 Cloud Storage。
+        // 這裡不需要知道是哪一種，只在乎「有沒有存成功」。
+        //
+        // ★ 副檔名是 wav 不是 mp3：Google 回的是 LINEAR16，
+        //   而且 WavAudio.tidy 處理完仍然是 WAV，中間沒有任何轉檔。
+        Optional<String> filePath = audioStorage.save(language, tidied.get(), "wav");
 
-            Files.createDirectories(directory);
-            Files.write(Paths.get(audioStorageProperties.getDirectory()).resolve(filePath),
-                    tidied.get());
-
-            recordUsage(voiceName, speechText.length(), true);
-
-            return Optional.of(filePath);
-        } catch (Exception exception) {
+        if (filePath.isEmpty()) {
             // 聲音已經拿到了，錢也付了，是我們自己沒存下來。
             recordFailure(SpeechFailureReasonEnum.FILE_SAVE_FAILED, voiceName,
-                    speechText.length(), exception);
+                    speechText.length(), null);
             return Optional.empty();
         }
+
+        recordUsage(voiceName, speechText.length(), true);
+
+        return filePath;
     }
 
     /**
@@ -262,14 +257,6 @@ public class GoogleSpeechClient implements SpeechClient {
                 googleSpeechProperties.getPricePerCharacter(),
                 BigDecimal.ZERO,
                 success);
-    }
-
-    /**
-     * 隨機檔名，避免使用者輸入的內容（空白、斜線、表情符號）跑進檔名。
-     * 不含資料夾 —— 要放進 th/ 還是 zh/ 由 language 決定。
-     */
-    private String newFileName() {
-        return UUID.randomUUID().toString().replace("-", "").substring(0, 12) + ".wav";
     }
 
     /** Google 的回應格式。audioContent 是 base64 編碼過的音檔內容。 */
