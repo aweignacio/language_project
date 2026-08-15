@@ -5,67 +5,18 @@ package com.tim.language_project.config;
  *  這個檔案負責什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
- *  讓瀏覽器讀得到我們產生的 mp3。
+ *  ★ 2026-08-15 起，這個檔案不再處理 /audio/** 的路由。
  *
- *  問題是這樣來的：音檔存在「專案資料夾底下的 audio/」，那是硬碟上的檔案，
- *  不在專案的程式包裡面。瀏覽器不能直接讀你的硬碟，
- *  必須由後端開一個網址對應過去。這個檔案就是在做那件對應。
+ *    以前音檔存在「專案資料夾底下的 audio/」，這個檔案用
+ *    registry.addResourceHandler("/audio/**") 把網址對應到那個資料夾，
+ *    讓瀏覽器讀得到硬碟上的檔案。
  *
- * ══════════════════════════════════════════════════════════════════════════
- *  流程：從畫面按下播放鍵到聽見聲音
- * ══════════════════════════════════════════════════════════════════════════
+ *    但雲端沒有「資料夾」—— Cloud Run 的容器是用完就丟的，音檔在
+ *    Cloud Storage 上。所以改由 AudioFileController 統一處理音檔請求，
+ *    本機與雲端走同一條路徑，本機測得過的行為才等於雲端的行為。
+ *    詳細流程見 AudioFileController 的說明。
  *
- * ── 第 1 步｜前一次查詢已經產生了音檔 ───────────────────────────────────
- *
- *    OpenAiSpeechClient 存了一個檔案：
- *
- *        C:\Tim\language_project\audio\a3f9c2b81e47.mp3
- *
- *    並把「a3f9c2b81e47.mp3」這個檔名存進 translation_query 表的 audio_file 欄位。
- *
- * ── 第 2 步｜前端拿到查詢結果，畫出播放鍵 ───────────────────────────────
- *
- *        <audio src="/audio/a3f9c2b81e47.mp3">
- *                     ↑ 前端只知道檔名，不知道也不該知道硬碟路徑
- *
- * ── 第 3 步｜你按下播放，瀏覽器發出請求 ─────────────────────────────────
- *
- *        GET /audio/a3f9c2b81e47.mp3
- *
- * ── 第 4 步｜下面這段設定把網址翻譯成硬碟路徑 ───────────────────────────
- *
- *        registry.addResourceHandler("/audio/**")     ← 收到這種網址
- *                .addResourceLocations(location);     ← 就去這個資料夾找
- *
- *        /audio/a3f9c2b81e47.mp3
- *            └──────────────────→ file:///C:/Tim/language_project/audio/a3f9c2b81e47.mp3
- *
- *    ★ 為什麼要用 toAbsolutePath()？
- *
- *      設定檔寫的是相對路徑 "audio"。相對路徑是「相對於程式啟動時所在的資料夾」，
- *      而那個資料夾會隨啟動方式改變（在 IDE 按執行、用 java -jar、用不同工作目錄）。
- *      轉成絕對路徑之後就固定了，不會出現「在我電腦上好好的，換個方式啟動就 404」。
- *
- * ── 第 5 步｜檔案不存在時 ───────────────────────────────────────────────
- *
- *    Spring 丟出 NoResourceFoundException，由 GlobalExceptionHandler 接住，
- *    回 404 RESOURCE_NOT_FOUND。
- *
- *    ★ 這裡曾經是回 500 的（把「檔案不存在」講成「伺服器爆炸」），
- *      詳見 GlobalExceptionHandler 開頭的情境三。
- *
- * ══════════════════════════════════════════════════════════════════════════
- *  為什麼不用 application.yml 的 static-locations 設定
- * ══════════════════════════════════════════════════════════════════════════
- *
- *  計畫文件原本提議在 yml 寫：
- *
- *      spring.web.resources.static-locations: [classpath:/static/, file:audio/]
- *
- *  那是錯的。static-locations 掛在「/**」底下，所以 /audio/x.mp3 會被解析成
- *  去找「audio 資料夾裡面的 audio/x.mp3」—— 多了一層，永遠找不到檔案。
- *
- *  用這個檔案明確註冊 /audio/** 才是對的。
+ *    這個檔案現在只剩下純宣告的用途，見下方 @EnableConfigurationProperties。
  *
  * ══════════════════════════════════════════════════════════════════════════
  *  為什麼 AudioStorageProperties 不標 @Component
@@ -75,7 +26,7 @@ package com.tim.language_project.config;
  *
  *  @WebMvcTest 這種切片測試只啟動網頁那一塊：
  *
- *      會載入：Controller、@ControllerAdvice、WebMvcConfigurer ← 包含這個檔案
+ *      會載入：Controller、@ControllerAdvice、WebMvcConfigurer
  *      不載入：@Component、@Service
  *
  *  所以如果設定類別靠 @Component 註冊，這個檔案在切片測試裡會找不到它，
@@ -84,33 +35,27 @@ package com.tim.language_project.config;
  *
  *  改用 @EnableConfigurationProperties 註冊之後，
  *  「這個 Configuration 載入到哪裡，設定就跟到哪裡」，切片測試也不會壞。
+ *
+ *  ★ 2026-08-15 補充：這個檔案不再 implements WebMvcConfigurer
+ *    （因為 /audio/** 的路由已經搬到 AudioFileController，見上方說明），
+ *    但這條「不要標 @Component」的教訓依然成立——
+ *    只要哪個地方需要用到 @EnableConfigurationProperties 掛設定類別，
+ *    掛的位置能不能被切片測試載入到，就得先想過這一關。
  */
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-
-import java.nio.file.Paths;
 
 /**
- * 把 /audio/** 對應到本機的音檔資料夾。
- * 以 @EnableConfigurationProperties 一併註冊 AudioStorageProperties，
- * 讓這個類別載入到哪裡，設定就跟到哪裡。
+ * 註冊設定類別。
+ *
+ * ★ 2026-08-15 移除了 /audio/** 的靜態資源對應。
+ *   原本音檔是由 Spring 直接把本機資料夾吐出去，但雲端沒有本機資料夾
+ *   （容器是用完就丟的，音檔在 Cloud Storage）。
+ *   改由 AudioFileController 統一處理，本機與雲端走同一條路徑，
+ *   本機測得過的行為才等於雲端的行為。
  */
 @Configuration
 @EnableConfigurationProperties({AudioStorageProperties.class, GoogleSpeechProperties.class})
-@RequiredArgsConstructor
-public class WebMvcConfig implements WebMvcConfigurer {
-
-    private final AudioStorageProperties audioStorageProperties;
-
-    @Override
-    public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        String location = Paths.get(audioStorageProperties.getDirectory())
-                .toAbsolutePath().toUri().toString();
-
-        registry.addResourceHandler("/audio/**").addResourceLocations(location);
-    }
+public class WebMvcConfig {
 }
