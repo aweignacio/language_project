@@ -17,12 +17,27 @@
     先 preconnect 是讓瀏覽器提早把連線建好，字型晚一點才到、畫面不會空白。
   -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+TC:wght@400;500;600;700&family=Noto+Serif+Thai:wght@400;500;600&display=swap"
-    rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=Noto+Serif+TC:wght@400;500;600;700&amp;family=Noto+Serif+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <link rel="manifest" href="manifest.webmanifest">
+
+  <!--
+    iOS 專用的標籤。iPhone 的 Safari 對 manifest.webmanifest 只支援一部分，
+    下面這幾行是它真正認得的，少了它們「加入主畫面」之後會變成：
+      ・圖示變成網頁截圖，而不是我們設計的那個
+      ・點開仍然帶著 Safari 的網址列，不是全螢幕
+      ・桌面名稱抓 <title>「中泰翻譯查詢」，而不是 ThaiLan
+
+    Android 走 manifest 就夠了，不需要這一段。
+  -->
+  <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ThaiLan">
+  <!-- black-translucent 讓狀態列融進頁面的深色背景，不會浮一條灰帶 -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body>
   <app-root></app-root>
+  <noscript>Please enable JavaScript to continue using this application.</noscript>
 </body>
 </html>
