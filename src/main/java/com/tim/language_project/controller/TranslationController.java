@@ -110,14 +110,19 @@ package com.tim.language_project.controller;
 
 import com.tim.language_project.dto.request.TranslationRequestDto;
 import com.tim.language_project.dto.response.TranslationResponseDto;
+import com.tim.language_project.dto.response.TranslationSegmentDto;
+import com.tim.language_project.dto.response.TranslationVariantDto;
 import com.tim.language_project.service.TranslationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * 翻譯查詢端點。
@@ -141,5 +146,30 @@ public class TranslationController {
         HttpStatus status = response.fromCache() ? HttpStatus.OK : HttpStatus.CREATED;
 
         return ResponseEntity.status(status).body(response);
+    }
+
+    /**
+     * 逐詞拆解，使用者在畫面上點了「逐詞拆解」才會打過來。
+     *
+     * ★ 為什麼也是 POST：這支可能會呼叫 OpenAI 並寫入資料庫。
+     *   GET 在規範上代表「只讀不寫」，瀏覽器和中間的快取都會依這個前提行事 ——
+     *   用 GET 的話，重新整理或預先載入都可能默默多花一次錢。
+     *
+     * @param queryId 翻譯回應裡的 queryId
+     */
+    @PostMapping("/{queryId}/segments")
+    public ResponseEntity<List<TranslationSegmentDto>> segments(@PathVariable Long queryId) {
+        return ResponseEntity.ok(translationService.resolveSegments(queryId));
+    }
+
+    /**
+     * 各種說法，使用者在畫面上點了「各種說法」才會打過來。
+     * 同樣用 POST，理由見上面。
+     *
+     * @param queryId 翻譯回應裡的 queryId
+     */
+    @PostMapping("/{queryId}/variants")
+    public ResponseEntity<List<TranslationVariantDto>> variants(@PathVariable Long queryId) {
+        return ResponseEntity.ok(translationService.resolveVariants(queryId));
     }
 }

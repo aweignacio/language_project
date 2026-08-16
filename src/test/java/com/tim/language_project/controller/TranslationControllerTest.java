@@ -125,16 +125,14 @@ class TranslationControllerTest {
      * ═══ 測試一：快取命中的成功回應 ═════════════════════════════════════
      */
     @Test
-    @DisplayName("查詢成功應回傳翻譯內容與逐詞對照")
+    @DisplayName("查詢成功應回傳翻譯內容與 queryId")
     void shouldReturnTranslation() throws Exception {
         when(translationService.translate("我想喝酒", SpeakerGenderEnum.MALE))
                 .thenReturn(new TranslationResponseDto(
+                        137L,
                         "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
                         "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp",
-                        "/audio/th/a3f9c2.mp3", null, true,
-                        List.of(new TranslationSegmentDto(
-                                1, "我", "ผม", "pǒm", null, null)),
-                        List.of()));
+                        "/audio/th/a3f9c2.mp3", null, true));
 
         mockMvc.perform(postTranslation("我想喝酒", "MALE"))
                 // 快取命中 → 沒有產生新東西 → 200
@@ -148,9 +146,10 @@ class TranslationControllerTest {
                 // 我主張：音檔是「網址」不是檔名，前端才能直接放進 <audio src>
                 .andExpect(jsonPath("$.thaiAudioUrl").value("/audio/th/a3f9c2.mp3"))
                 .andExpect(jsonPath("$.fromCache").value(true))
-                // 我主張：逐詞對照有跟著出去，而且欄位名稱正確
-                .andExpect(jsonPath("$.segments[0].chineseText").value("我"))
-                .andExpect(jsonPath("$.segments[0].thaiText").value("ผม"));
+                // ★ 我主張：queryId 有跟著出去。
+                //   前端點「逐詞拆解」和「各種說法」時就是拿它打回來的，
+                //   漏掉的話那兩顆按鈕永遠按不動，而且畫面上看不出任何異狀。
+                .andExpect(jsonPath("$.queryId").value(137));
     }
 
     /*
@@ -167,11 +166,9 @@ class TranslationControllerTest {
     void shouldReturnCreatedForNewTranslation() throws Exception {
         when(translationService.translate("水", SpeakerGenderEnum.MALE))
                 .thenReturn(new TranslationResponseDto(
+                        138L,
                         "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "水", "น้ำ", "náam", null, null, false,
-                        List.of(new TranslationSegmentDto(
-                                1, "水", "น้ำ", "náam", null, null)),
-                        List.of()));
+                        "水", "น้ำ", "náam", null, null, false));
 
         mockMvc.perform(postTranslation("水", "MALE"))
                 .andExpect(status().isCreated())
@@ -216,14 +213,58 @@ class TranslationControllerTest {
     void shouldPassGenderToService() throws Exception {
         when(translationService.translate("我", SpeakerGenderEnum.FEMALE))
                 .thenReturn(new TranslationResponseDto(
+                        139L,
                         "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.FEMALE,
-                        "我", "ฉัน", "chǎn", null, null, false,
-                        List.of(), List.of()));
+                        "我", "ฉัน", "chǎn", null, null, false));
 
         mockMvc.perform(postTranslation("我", "FEMALE"))
                 .andExpect(status().isCreated());
 
         verify(translationService).translate("我", SpeakerGenderEnum.FEMALE);
+    }
+
+    /*
+     * ═══ 測試五：逐詞拆解端點要把 queryId 從網址取出來傳下去 ═════════════
+     *
+     * 這支端點是 2026-08-16 新開的。使用者在畫面上點「逐詞拆解」才會打過來。
+     *
+     * ★ 取錯 queryId 的症狀非常難查：畫面會長出「別句話」的逐詞拆解，
+     *   而且看起來完全正常（有中文、有泰文、有拼音），只是內容跟你查的無關。
+     *   所以這裡用 verify 釘住「傳下去的一定是 137」。
+     */
+    @Test
+    @DisplayName("逐詞拆解端點應把網址上的 queryId 傳給 Service")
+    void shouldResolveSegments() throws Exception {
+        when(translationService.resolveSegments(137L))
+                .thenReturn(List.of(new TranslationSegmentDto(
+                        1, "我", "ผม", "pǒm", null, null)));
+
+        mockMvc.perform(post("/api/v1/translations/137/segments"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].chineseText").value("我"))
+                .andExpect(jsonPath("$[0].thaiText").value("ผม"));
+
+        verify(translationService).resolveSegments(137L);
+    }
+
+    /*
+     * ═══ 測試六：各種說法端點同理 ═══════════════════════════════════════
+     *
+     * ★ 另外釘住「空清單要回 200 加一個空陣列」，不是 404 也不是 204。
+     *   查句子時本來就沒有其他說法，那是正常結果不是錯誤 ——
+     *   回 404 的話前端會跳錯誤訊息，使用者以為系統壞了。
+     */
+    @Test
+    @DisplayName("各種說法端點應把網址上的 queryId 傳給 Service，沒有說法時回空陣列")
+    void shouldResolveVariants() throws Exception {
+        when(translationService.resolveVariants(137L)).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/v1/translations/137/variants"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$").isEmpty());
+
+        verify(translationService).resolveVariants(137L);
     }
 
     /*

@@ -107,6 +107,22 @@ CREATE TABLE IF NOT EXISTS translation_query
         CHECK (gender IS NULL OR gender IN ('MALE', 'FEMALE'))
 );
 
+/*
+ * ★ 用「泰文」找逐詞拆解時要用到的索引。
+ *
+ * 「我想喝酒」和「我想要喝酒」是兩句不同的中文，會各自存一列（快取的鑰匙
+ * 是原文），但 AI 翻出來的泰文常常一模一樣。點「逐詞拆解」時就是拿泰文
+ * 來這張表找「有沒有人已經拆過同一句泰文」，有的話直接撿現成的，
+ * 不必再付一次錢重拆。
+ *
+ * ★ 沒有這個索引的話那個查詢會整表掃描。資料少的時候看不出來，
+ *   累積到幾千筆之後每點一次逐詞都會慢一拍 —— 而且不會有任何錯誤訊息。
+ *
+ * 對應 TranslationSegmentRepository.findByThaiTextOrderBySeqNo。
+ */
+CREATE INDEX IF NOT EXISTS ix_translation_query_thai_text
+    ON translation_query (thai_text);
+
 /* ============================================================
  * 2. translation_segment —— 逐詞拆解結果
  *

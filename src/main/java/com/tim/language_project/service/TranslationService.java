@@ -109,22 +109,18 @@ package com.tim.language_project.service;
  *    失敗回傳空的 Optional → 網址是 null → 前端不顯示播放鍵，
  *    但翻譯結果照樣給使用者。聲音失敗不該讓整個查詢失敗。
  *
- * ── 第 7 步｜組多重說法（只有查單一個詞時才有）─────────────────────────
- *
- *        buildVariants(result)  →  ผม / ฉัน / กู 三筆，各自帶標籤與音檔
- *
- *    查句子時 result.variants() 是空的，這裡就回空清單。
- *
- * ── 第 8 步｜寫進資料庫 ─────────────────────────────────────────────────
+ * ── 第 7 步｜寫進資料庫 ─────────────────────────────────────────────────
  *
  *        translationPersistenceService.persist(sourceText, direction, gender, result);
  *
- *    寫入快取、逐詞、單字庫三張表，綁在同一個交易裡（見該檔說明）。
- *    音檔不在裡面 —— 它在第 6 步就已經由 AudioAssetService 自己存好了。
+ *    ★ 只寫 translation_query 那一列，而且會把資料庫產生的 id 回傳給我們。
+ *      逐詞與說法這次完全沒問，當然也沒有東西可以寫。
+ *      音檔也不在裡面 —— 它在第 6 步就已經由 AudioAssetService 自己存好了。
  *
- * ── 第 9 步｜組回應給前端 ───────────────────────────────────────────────
+ * ── 第 8 步｜組回應給前端 ───────────────────────────────────────────────
  *
  *        {
+ *          "queryId": 137,
  *          "sourceText": "我想喝酒",
  *          "direction": "ZH_TO_TH",
  *          "gender": "MALE",
@@ -133,12 +129,46 @@ package com.tim.language_project.service;
  *          "romanization": "pǒm yàak dùuem lâo khráp",
  *          "thaiAudioUrl": "/audio/th/a3f9c2b81e47.mp3",
  *          "chineseAudioUrl": null,
- *          "fromCache": false,
- *          "segments": [ {"seqNo":1,"chineseText":"我",...}, ... ],
- *          "variants": []
+ *          "fromCache": false
  *        }
  *
  *    ★ chineseText 和 thaiText 兩面都給，前端不需要自己判斷方向。
+ *    ★ queryId 是給第 9 步用的。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  ★ 第 9 步｜逐詞拆解與各種說法：使用者「點了才跑」（2026-08-16 改的）
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  以前第 4 步那一次 OpenAI 呼叫要一口氣產出翻譯、拼音、逐詞拆解、各種說法。
+ *  查 api_usage_log 量到平均輸出 867 個 token；而語言模型是一個 token 一個
+ *  token 吐出來的，以每秒約 40 個計算，光是「產出」就要 22 秒 ——
+ *  跟你實際等到不耐煩的時間完全吻合。
+ *
+ *  ★ 關鍵是：你按下查詢的那一刻，只想看到泰文和拼音。
+ *    逐詞拆解和各種說法是「看完之後才會慢慢研究」的東西，
+ *    而且大部分時候你根本不會看。
+ *
+ *  所以拆成三支，後兩支等你在畫面上點下去才跑：
+ *
+ *      畫面點「逐詞拆解」→ POST /api/v1/translations/137/segments
+ *                        → resolveSegments(137)
+ *                            ① translation_segment 有 137 的資料 → 直接回，不花錢
+ *                            ② 沒有 → translationClient.segment(中文, 泰文)
+ *                                    → 寫進 translation_segment ＋ 單字庫
+ *
+ *      畫面點「各種說法」→ POST /api/v1/translations/137/variants
+ *                        → resolveVariants(137)
+ *                            ① vocabulary 裡這個中文詞已經有兩種以上說法 → 直接回
+ *                            ② 沒有 → translationClient.variants(中文, 泰文)
+ *                                    → 寫進單字庫
+ *
+ *  ★ 最容易搞混：resolveSegments 傳的是「翻譯完成後的中泰兩面」，
+ *    不是使用者當初打的字。這樣模型不必重新翻譯一次，只要專心切分，
+ *    輸出量與出錯機會都小得多。
+ *
+ *  ★ 為什麼快取命中時也不順便把逐詞撈出來給前端？
+ *    因為那樣「第一次查」和「第二次查」的畫面會不一樣 ——
+ *    第二次一打開就長出拆解，看起來像壞掉。一律等你點。
  *
  * ══════════════════════════════════════════════════════════════════════════
  *  一個刻意的設計：外部呼叫不放在交易裡
@@ -156,8 +186,10 @@ package com.tim.language_project.service;
  */
 
 import com.tim.language_project.client.TranslationClient;
+import com.tim.language_project.client.model.SegmentationResult;
 import com.tim.language_project.client.model.TranslationResult;
 import com.tim.language_project.client.model.TranslationVariant;
+import com.tim.language_project.client.model.VariantResult;
 import com.tim.language_project.client.model.TranslationWord;
 import com.tim.language_project.config.AudioStorageProperties;
 import com.tim.language_project.dto.response.TranslationQueryDto;
@@ -212,8 +244,11 @@ public class TranslationService {
     private final TranslationPersistenceService translationPersistenceService;
 
     /**
-     * 查一段文字，自動判斷方向後回傳兩面的文字、拼音、逐詞對照、多重說法與音檔網址。
+     * 查一段文字，自動判斷方向後回傳兩面的文字、拼音與音檔網址。
      * 外部呼叫刻意跑在交易之外，只有最後的寫入才進交易 —— 理由見檔案開頭。
+     *
+     * ★ 這裡「只有整句」。逐詞拆解與各種說法要另外呼叫 resolveSegments／
+     *   resolveVariants，而且是使用者在畫面上點了才跑。
      */
     public TranslationResponseDto translate(String rawInput, SpeakerGenderEnum gender) {
         String sourceText = validateAndNormalize(rawInput);
@@ -245,10 +280,11 @@ public class TranslationService {
                 autoGenerateAudio(result.thaiText(), SpeechLanguageEnum.TH, direction);
         String chineseAudioUrl =
                 autoGenerateAudio(result.chineseText(), SpeechLanguageEnum.ZH, direction);
-        List<TranslationVariantDto> variants = buildVariants(result, direction);
+
+        Long queryId;
 
         try {
-            translationPersistenceService.persist(
+            queryId = translationPersistenceService.persist(
                     sourceText, direction, effectiveGender, result);
         } catch (DataIntegrityViolationException exception) {
             // 撞到唯一鍵，代表在我們翻譯的這幾秒內，另一個請求已經把同一句寫進去了。
@@ -263,10 +299,94 @@ public class TranslationService {
         }
 
         return new TranslationResponseDto(
-                sourceText, direction, effectiveGender,
+                queryId, sourceText, direction, effectiveGender,
                 result.chineseText(), result.thaiText(), result.romanization(),
-                thaiAudioUrl, chineseAudioUrl, false,
-                toSegmentDtos(result.words()), variants);
+                thaiAudioUrl, chineseAudioUrl, false);
+    }
+
+    /**
+     * 逐詞拆解：使用者在畫面上點了「逐詞拆解」才會走到這裡。
+     *
+     * 順序刻意是「先問資料庫，沒有才問模型」：
+     *
+     *   ① 資料庫裡已經有「這句泰文」的拆解 → 直接回，不花錢
+     *   ② 沒有 → 呼叫 OpenAI 拆一次，寫進資料庫，之後任何人再點都走 ①
+     *
+     * ★ 第 ① 步找的是「泰文一樣」而不是「同一筆查詢」（2026-08-16 改的）。
+     *
+     *   「我想喝酒」和「我想要喝酒」是兩句不同的中文，會各自存一列快取，
+     *   但翻出來的泰文常常一模一樣。用查詢 id 去找的話，第二句找不到自己的
+     *   逐詞，於是又付一次錢把「同一句泰文」重新拆一次。
+     *
+     *   ★ 副作用要知道：第二句拿到的是第一句的逐詞，所以中文那欄會是
+     *     「想」而不是「想要」。這是可以接受的 —— 逐詞對照本來就是在解釋
+     *     「這個泰文詞是什麼意思」，อยาก 註成「想」或「想要」都對。
+     *
+     *   ★ 翻譯那一次呼叫省不掉：要先拿到泰文才知道泰文一樣，
+     *     而拿到泰文就是付錢的那一刻。詳見 TranslationSegmentRepository。
+     *
+     * ★ 模型拆不出來時 segment 會回空的 list（見 OpenAiTranslationClient），
+     *   這裡照樣回空的給前端，畫面顯示「沒有拆解結果」，不會擋住整句。
+     */
+    public List<TranslationSegmentDto> resolveSegments(Long queryId) {
+        TranslationQueryDto query = translationQueryRepository.findDtoById(queryId)
+                .orElseThrow(() -> new BusinessException(ErrorCodeEnum.RESOURCE_NOT_FOUND));
+
+        List<TranslationSegmentDto> cached =
+                translationSegmentRepository.findByThaiTextOrderBySeqNo(query.thaiText());
+
+        if (!ObjectUtils.isEmpty(cached)) {
+            return withSegmentAudio(cached);
+        }
+
+        SegmentationResult result =
+                translationClient.segment(query.chineseText(), query.thaiText());
+
+        if (ObjectUtils.isEmpty(result.words())) {
+            return List.of();
+        }
+
+        translationPersistenceService.persistSegmentation(
+                queryId, query.sourceText(), result.words());
+
+        return toSegmentDtos(result.words());
+    }
+
+    /**
+     * 各種說法：使用者在畫面上點了「各種說法」才會走到這裡。
+     *
+     * 順序同樣是「先問資料庫，沒有才問模型」，只是家在單字庫：
+     *
+     *   ① vocabulary 裡這個中文詞已經有兩種以上的說法 → 直接回，不花錢
+     *   ② 沒有 → 呼叫 OpenAI 列一次，寫進單字庫，之後任何人再點都走 ①
+     *
+     * ★ 只有一列的情況要當作「還沒問過」而不是「只有一種說法」。
+     *   那一列通常是查整句時從逐詞沉澱下來的，本來就沒有其他說法可比。
+     *
+     * ★ 整句沒有「另一種說法」這種東西，模型會回空的，這裡就回空的。
+     *   前端顯示「沒有其他說法」。
+     */
+    public List<TranslationVariantDto> resolveVariants(Long queryId) {
+        TranslationQueryDto query = translationQueryRepository.findDtoById(queryId)
+                .orElseThrow(() -> new BusinessException(ErrorCodeEnum.RESOURCE_NOT_FOUND));
+
+        List<TranslationVariantDto> cached = cachedVariants(query.chineseText());
+
+        if (!ObjectUtils.isEmpty(cached)) {
+            return cached;
+        }
+
+        VariantResult result =
+                translationClient.variants(query.chineseText(), query.thaiText());
+
+        if (ObjectUtils.isEmpty(result.variants())) {
+            return List.of();
+        }
+
+        translationPersistenceService.persistVariants(
+                query.sourceText(), query.chineseText(), result.variants());
+
+        return buildVariants(result.variants(), query.direction());
     }
 
     /**
@@ -305,15 +425,11 @@ public class TranslationService {
      * ★ 整句與第一個說法常常是同一段文字（查「我」時 thaiText 就是 ผม），
      *   靠 audio_asset 的唯一鍵自動共用，不會重複合成。
      */
-    private List<TranslationVariantDto> buildVariants(TranslationResult result,
+    private List<TranslationVariantDto> buildVariants(List<TranslationVariant> sourceVariants,
                                                       TranslationDirectionEnum direction) {
-        if (ObjectUtils.isEmpty(result.variants())) {
-            return List.of();
-        }
-
         List<TranslationVariantDto> variants = new ArrayList<>();
 
-        for (TranslationVariant variant : result.variants()) {
+        for (TranslationVariant variant : sourceVariants) {
             variants.add(new TranslationVariantDto(
                     variant.thaiText(),
                     variant.romanization(),
@@ -345,10 +461,12 @@ public class TranslationService {
         return sourceText;
     }
 
+    /**
+     * ★ 快取命中時也不撈逐詞與說法。
+     *   它們是「點了才長出來」的東西，就算資料庫已經有了也一樣等使用者點 ——
+     *   不然同一句話「第一次查」和「第二次查」的畫面會不一樣，看起來像壞掉。
+     */
     private TranslationResponseDto buildCachedResponse(TranslationQueryDto cached) {
-        List<TranslationSegmentDto> segments = withSegmentAudio(
-                translationSegmentRepository.findByQueryIdOrderBySeqNo(cached.id()));
-
         // 快取命中代表「這次不花錢」，所以只查現成的音檔，絕不合成。
         String thaiAudioUrl = audioAssetService
                 .findExistingAudioUrl(cached.thaiText(), SpeechLanguageEnum.TH).orElse(null);
@@ -356,10 +474,9 @@ public class TranslationService {
                 .findExistingAudioUrl(cached.chineseText(), SpeechLanguageEnum.ZH).orElse(null);
 
         return new TranslationResponseDto(
-                cached.sourceText(), cached.direction(), cached.gender(),
+                cached.id(), cached.sourceText(), cached.direction(), cached.gender(),
                 cached.chineseText(), cached.thaiText(), cached.romanization(),
-                thaiAudioUrl, chineseAudioUrl, true,
-                segments, cachedVariants(cached));
+                thaiAudioUrl, chineseAudioUrl, true);
     }
 
     /**
@@ -367,7 +484,7 @@ public class TranslationService {
      *
      * ★ 為什麼要補：音檔不在 translation_segment 那張表裡（全站的音檔由
      *   audio_asset 持有），JPQL 的建構子表達式又沒辦法跨表把它們一起撈出來，
-     *   所以 findByQueryIdOrderBySeqNo 的兩個音檔欄位一律回 null。
+     *   所以 findByThaiTextOrderBySeqNo 的兩個音檔欄位一律回 null。
      *
      * ★ 漏掉這一步的症狀很不明顯：畫面照常、點下去也會有聲音，
      *   只是「該亮的播放鍵一直是灰的」，看起來像音檔從來沒生出來過。
@@ -394,12 +511,11 @@ public class TranslationService {
     }
 
     /**
-     * 快取命中時，說法從單字庫撈 —— 那裡就是它們的家。
+     * 說法從單字庫撈 —— 那裡就是它們的家。
      * 只有單字查詢才有說法，句子查詢撈出來會是空的（因為句子不是一個詞）。
      */
-    private List<TranslationVariantDto> cachedVariants(TranslationQueryDto cached) {
-        List<VocabularyDto> words =
-                vocabularyRepository.findByChineseText(cached.chineseText());
+    private List<TranslationVariantDto> cachedVariants(String chineseText) {
+        List<VocabularyDto> words = vocabularyRepository.findByChineseText(chineseText);
 
         if (words.size() <= 1) {
             return List.of();

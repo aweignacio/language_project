@@ -42,8 +42,21 @@ export interface TranslationVariant {
   thaiAudioUrl: string | null;
 }
 
-/** 對應後端 TranslationResponseDto，一次查詢的完整結果。 */
+/**
+ * 對應後端 TranslationResponseDto，一次查詢的整句結果。
+ *
+ * ★ 2026-08-16 起這裡「只有整句」。
+ *   逐詞拆解與各種說法拿掉了，改由使用者點按鈕後各自呼叫：
+ *
+ *       POST /api/v1/translations/{queryId}/segments
+ *       POST /api/v1/translations/{queryId}/variants
+ *
+ *   理由：原本一次呼叫要模型產出這三樣，平均輸出 867 個 token，
+ *   光是產出就要二十幾秒。而按下查詢的那一刻最想看到的只有泰文和拼音。
+ */
 export interface TranslationResponse {
+  /** 這筆查詢在資料庫的 id，點「逐詞拆解」「各種說法」時要帶回去。 */
+  queryId: number;
   sourceText: string;
   direction: TranslationDirection;
   gender: SpeakerGender | null;
@@ -55,9 +68,6 @@ export interface TranslationResponse {
   chineseAudioUrl: string | null;
   /** true 代表這次讀快取、沒有呼叫 OpenAI，也就是沒有花錢。 */
   fromCache: boolean;
-  segments: TranslationSegment[];
-  /** 只有查單一個詞時才有內容，查句子時是空陣列。 */
-  variants: TranslationVariant[];
 }
 
 /** 對應後端 AudioResponseDto。 */

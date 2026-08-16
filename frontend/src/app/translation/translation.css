@@ -852,3 +852,53 @@
     margin-top: 0.35rem;
   }
 }
+
+/*
+ * ★ 逐詞拆解與各種說法的展開鍵（2026-08-16）
+ *
+ * 這兩塊改成「點一下才往下長」，所以需要一組看起來就可以按的鍵。
+ * 刻意做成低調的線框而不是實心金色 —— 主角是上面的泰文，
+ * 這兩顆只是入口，搶了視線反而讓人先去按它們。
+ */
+.expanders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1.4rem;
+}
+
+.expander {
+  padding: 0.55rem 1.1rem;
+  font-family: var(--font-serif);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  color: var(--gold-500);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.expander:hover:not(:disabled) {
+  border-color: var(--gold-600);
+  color: var(--gold-400);
+}
+
+/* 展開中的那一顆保持亮著，讓你一眼看出下面那塊是誰長出來的 */
+.expander--open {
+  border-color: var(--gold-600);
+  color: var(--gold-400);
+}
+
+.expander:disabled {
+  color: var(--ivory-faint);
+  cursor: default;
+}
+
+/* 「沒有其他說法」「載入失敗」這類一句話的說明 */
+.expander__hint {
+  margin: 0.9rem 0 0;
+  font-size: 0.8rem;
+  color: var(--ivory-faint);
+}

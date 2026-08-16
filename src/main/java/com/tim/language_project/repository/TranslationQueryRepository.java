@@ -45,6 +45,28 @@ public interface TranslationQueryRepository extends JpaRepository<TranslationQue
             @Param("gender") SpeakerGenderEnum gender);
 
     /*
+     * ★ 逐詞拆解與各種說法是「點了才跑」的獨立呼叫，前端只帶得回一個 queryId，
+     *   所以要能單獨用 id 把那筆查詢撈回來。用投影而不是 findById 拿實體，
+     *   是因為這兩支 API 都在交易外面跑，拿實體回來只會多一份用不到的狀態。
+     */
+    @Query("""
+            SELECT new com.tim.language_project.dto.response.TranslationQueryDto(
+                translationQuery.id,
+                translationQuery.sourceText,
+                translationQuery.direction,
+                translationQuery.gender,
+                translationQuery.chineseText,
+                translationQuery.thaiText,
+                translationQuery.romanization
+            )
+
+            FROM TranslationQuery translationQuery
+
+            WHERE translationQuery.id = :id
+            """)
+    Optional<TranslationQueryDto> findDtoById(@Param("id") Long id);
+
+    /*
      * 這兩個是 SpeechTextGuard 在用的：判斷一段文字是不是系統自己產生過的，
      * 用來擋掉會花錢的任意合成請求。方法名稱照 Spring Data 的規則寫，
      * 查詢語句由它自動產生，不需要 @Query。

@@ -82,16 +82,14 @@
  *          thaiAudioUrl: '/audio/th/a3f9c2b81e47.mp3',
  *          chineseAudioUrl: null,
  *          fromCache: true,
- *          segments: [
- *            { seqNo: 1, chineseText: '我', thaiText: 'ผม', romanization: 'pǒm',
- *              thaiAudioUrl: null, chineseAudioUrl: null },
- *            ...
- *          ],
- *          variants: []
+ *          queryId: 137
  *        }
  *
- *    ★ 逐詞的 thaiAudioUrl 大多是 null —— 那些音檔是「點了才生」的，
- *      畫面上要顯示成灰色的播放鍵（見下面第 7 步）。
+ *    ★ 這裡「只有整句」—— 沒有逐詞拆解，也沒有各種說法。
+ *      那兩塊是你點了按鈕才去要的（見第 6 步）。
+ *
+ *    ★ queryId 就是為了那兩顆按鈕才存在的 —— 你點下去的時候要拿它回去問後端
+ *      「那一句的拆解呢」。
  *
  *        result.set(那包東西)
  *              ↓
@@ -124,9 +122,35 @@
  *            硬讀 message 會拿到 undefined，畫面就會出現一塊空白的紅框。
  *            所以要自己補一句話。
  *
- * ── 第 6 步｜查單一個詞時，多出一區「各種說法」 ───────────────────────────
+ * ── ★ 第 6 步｜逐詞拆解與各種說法：點一下才往下長（2026-08-16）────
  *
- *    查「我」的話 variants 會有內容，畫面上多出這一區：
+ *    以前這兩塊是跟翻譯一起回來的，一查完就長在畫面上。
+ *    但那代表每次查詢都要等模型把它們產出來 —— 實測平均 867 個 token，
+ *    而模型是一個 token 一個 token 吐出來的，以每秒約 40 個計算，
+ *    光是產出就要 22 秒 —— 這就是「第一次查詢好慢」的真正原因。
+ *
+ *    ★ 而你按下查詢的那一刻，只想看到泰文和拼音。
+ *
+ *    所以現在畫面上是兩顆按鈕，你點了才去要：
+ *
+ *        loadVariants()  → POST /api/v1/translations/137/variants
+ *        loadSegments()  → POST /api/v1/translations/137/segments
+ *
+ *    每一塊都有四個訊號：
+ *
+ *        variants          拿到的資料。null = 還沒點過，空陣列 = 點過但沒東西
+ *        variantsLoading   正在要，按鈕顯示載入中且按不動
+ *        variantsFailed    要失敗了，顯示「載入失敗，再點一次」
+ *        variantsExpanded  拿到之後這一區是展開還是收起來的
+ *
+ *    ★ null 跟空陣列一定要分開。
+ *      合在一起的話，查句子時點「各種說法」（本來就沒有）會變成
+ *      「點了沒反應」，你會以為按鈕壞了，然後一直點、一直打後端。
+ *
+ *    ★ 第二次點同一顆按鈕是「收起來」，不會再打後端 ——
+ *      資料留著，再點一次直接展開。
+ *
+ *    拿到之後畫面上長出來的東西跟以前一模一樣，例如查「我」：
  *
  *        ผม    pǒm    【男性】【正式】  男生自稱          ★ 適合你
  *        กู     guu    【不分性別】【粗俗】 很不客氣（紅色警示）
@@ -314,6 +338,44 @@ export class Translation {
    */
   protected readonly synthesizing = signal<ReadonlySet<string>>(new Set());
 
+  /*
+   * ── ★ 逐詞拆解與各種說法：點一下才長出來（2026-08-16）─────────────────
+   *
+   *  以前這兩塊是跟著翻譯結果一起回來的，一查完就長在畫面上。
+   *  但那代表每次查詢都要等模型把它們產出來 —— 實測平均 867 個 token，
+   *  光是產出就要二十幾秒，而大部分時候你根本不會去看。
+   *
+   *  現在改成各自一顆按鈕，點了才去要。三個訊號一組：
+   *
+   *      segments        拿到的資料。null 代表「還沒點過」，
+   *                      空陣列代表「點過了，但是沒有東西」
+   *      segmentsLoading 正在要，按鈕顯示載入中且點不動
+   *      segmentsFailed  要失敗了，顯示「載入失敗，再點一次」
+   *
+   *  ★ 為什麼 null 和空陣列一定要分開？
+   *    合在一起的話，查句子時點「各種說法」（本來就沒有）會變成
+   *    「點了沒反應」，你會以為按鈕壞了，然後一直點、一直打後端。
+   */
+
+  /** 逐詞拆解的資料，null 代表使用者還沒點開。 */
+  protected readonly segments = signal<TranslationSegment[] | null>(null);
+
+  protected readonly segmentsLoading = signal(false);
+
+  protected readonly segmentsFailed = signal(false);
+
+  /** 已經拿過資料之後，這一區是展開還是收起來的。 */
+  protected readonly segmentsExpanded = signal(false);
+
+  /** 各種說法的資料，null 代表使用者還沒點開。 */
+  protected readonly variants = signal<TranslationVariant[] | null>(null);
+
+  protected readonly variantsLoading = signal(false);
+
+  protected readonly variantsFailed = signal(false);
+
+  protected readonly variantsExpanded = signal(false);
+
   /** Web Audio 的放大鏈，第一次按播放時才建立，之後重複使用。 */
   private audioContext?: AudioContext;
 
@@ -346,6 +408,10 @@ export class Translation {
     this.errorMessage.set(null);
     this.noticeMessage.set(null);
 
+    // ★ 上一句的拆解與說法一定要清掉，不然新結果會頂著舊句子的拆解顯示，
+    //   而且畫面上完全看不出來 —— 那兩塊本來就長得很像。
+    this.resetExpandables();
+
     this.translationService.translate(this.sourceText(), this.gender()).subscribe({
       next: (response) => {
         this.result.set(response);
@@ -376,6 +442,85 @@ export class Translation {
     if (this.result()) {
       this.search();
     }
+  }
+
+  /**
+   * 點下「逐詞拆解」。
+   *
+   * 已經拿過就不再打後端 —— 第二次點是「收起來」，資料留著，
+   * 再點一次直接展開，不必重新等待。
+   */
+  protected loadSegments(): void {
+    const translation = this.result();
+
+    if (!translation || this.segmentsLoading()) {
+      return;
+    }
+
+    // 已經有資料了：這一下是收合／展開，不用打後端。
+    if (this.segments()) {
+      this.segmentsExpanded.set(!this.segmentsExpanded());
+      return;
+    }
+
+    this.segmentsLoading.set(true);
+    this.segmentsFailed.set(false);
+
+    this.translationService.segments(translation.queryId).subscribe({
+      next: (segments) => {
+        this.segments.set(segments);
+        this.segmentsExpanded.set(true);
+        this.segmentsLoading.set(false);
+      },
+      error: () => {
+        // ★ 失敗不清掉整個查詢結果 —— 泰文和拼音早就在畫面上了，
+        //   不該因為拆解要不到就讓已經看得到的東西消失。
+        this.segmentsFailed.set(true);
+        this.segmentsLoading.set(false);
+      },
+    });
+  }
+
+  /** 點下「各種說法」。行為與 loadSegments 完全一樣。 */
+  protected loadVariants(): void {
+    const translation = this.result();
+
+    if (!translation || this.variantsLoading()) {
+      return;
+    }
+
+    if (this.variants()) {
+      this.variantsExpanded.set(!this.variantsExpanded());
+      return;
+    }
+
+    this.variantsLoading.set(true);
+    this.variantsFailed.set(false);
+
+    this.translationService.variants(translation.queryId).subscribe({
+      next: (variants) => {
+        this.variants.set(variants);
+        this.variantsExpanded.set(true);
+        this.variantsLoading.set(false);
+      },
+      error: () => {
+        this.variantsFailed.set(true);
+        this.variantsLoading.set(false);
+      },
+    });
+  }
+
+  /** 換一句話查詢時，把上一句的拆解與說法整組清乾淨。 */
+  private resetExpandables(): void {
+    this.segments.set(null);
+    this.segmentsLoading.set(false);
+    this.segmentsFailed.set(false);
+    this.segmentsExpanded.set(false);
+
+    this.variants.set(null);
+    this.variantsLoading.set(false);
+    this.variantsFailed.set(false);
+    this.variantsExpanded.set(false);
   }
 
   /**

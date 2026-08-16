@@ -5,11 +5,28 @@ package com.tim.language_project.service;
  *  這個檔案負責什麼
  * ══════════════════════════════════════════════════════════════════════════
  *
- *  一次翻譯成功之後，把結果寫進三張表。全部綁在同一個交易裡 ——
- *  要嘛三張都成功，要嘛全部當作沒發生。
+ *  翻譯完成之後，把結果寫進資料庫。每個寫入方法各自是一個交易 ——
+ *  該方法要寫的表要嘛全部成功，要嘛全部當作沒發生。
  *
- *  不能只寫一半：留下一筆沒有逐詞資料的翻譯，畫面上就會出現
- *  「有泰文但沒有逐詞對照」的殘缺結果。
+ * ══════════════════════════════════════════════════════════════════════════
+ *  ★ 三個寫入方法，對應使用者的三個動作（2026-08-16 改的）
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  以前只有一個 persist，一口氣寫三張表 —— 因為當時一次 OpenAI 呼叫就會
+ *  把翻譯、逐詞、各種說法全部拿回來。
+ *
+ *  現在那一次呼叫被拆成三次（理由見 TranslationService 第 9 步：
+ *  一次要齊平均輸出 867 個 token，光產出就要 22 秒），寫入自然也跟著拆：
+ *
+ *      你按下查詢          → persist              → translation_query
+ *      你點「逐詞拆解」    → persistSegmentation  → translation_segment ＋ vocabulary
+ *      你點「各種說法」    → persistVariants      → vocabulary
+ *
+ *  ★ 為什麼不能合成一個交易？因為它們根本不同時發生 ——
+ *    後兩個可能是你三分鐘後才點的，也可能一輩子不點。
+ *
+ *  ★ 因此「有泰文但沒有逐詞對照」現在是正常狀態，不是殘缺。
+ *    那代表你還沒點開它。
  *
  * ══════════════════════════════════════════════════════════════════════════
  *  流程：接續「我想喝酒」翻譯與語音都完成之後
@@ -18,13 +35,13 @@ package com.tim.language_project.service;
  * ── 第 1 步｜TranslationService 呼叫 persist ────────────────────────────
  *
  *        persist("我想喝酒", ZH_TO_TH, MALE, result)
- *                 ↑原文     ↑方向     ↑性別  ↑翻譯結果
+ *                 ↑原文     ↑方向     ↑性別  ↑翻譯結果（只有整句）
  *
  *    ★ 2026-08-14 起「不再收音檔檔名」。
  *      音檔改由 AudioAssetService 以文字內容為鍵統一管理，
  *      這張表只存文字。
  *
- * ── 第 2 步｜寫入 translation_query（快取）─────────────────────────────
+ * ── 第 2 步｜寫入 translation_query（快取），回傳 id ───────────────────
  *
  *        id  source_text  direction  gender  chinese_text  thai_text            romanization
  *        ──  ───────────  ─────────  ──────  ────────────  ──────────────────   ───────────────────
@@ -35,9 +52,12 @@ package com.tim.language_project.service;
  *      泰翻中沒有性別概念，gender 存 null。
  *
  *    ★ 用 saveAndFlush 而不是 save，是為了「現在就拿到 id」。
- *      下一步的逐詞資料要用這個 id 當外鍵，不先送出去就拿不到編號。
+ *      這個 id 會一路回傳給前端當 queryId，之後你點「逐詞拆解」或
+ *      「各種說法」時就是拿它打回來的。
  *
- * ── 第 3 步｜寫入 translation_segment（逐詞，四筆）──────────────────────
+ *    ★ persist 到這裡就結束了。下面兩步是你點了按鈕才發生的事。
+ *
+ * ── 第 3 步｜你點「逐詞拆解」→ persistSegmentation（逐詞，四筆）─────────
  *
  *        query_id  seq_no  chinese_text  thai_text  romanization
  *        ────────  ──────  ────────────  ─────────  ────────────
@@ -50,9 +70,9 @@ package com.tim.language_project.service;
  *
  * ── 第 4 步｜沉澱單字（新的寫進去，舊的補齊欄位）───────────────────────
  *
- *    要寫的東西有兩種來源，看 result.variants() 有沒有內容：
+ *    要寫的東西有兩種來源，看是哪個方法叫進來的：
  *
- *        有內容 → 這是「單字查詢」（你查的就是一個詞）。
+ *        persistVariants → 你點了「各種說法」（你查的是一個詞）。
  *                 把每一種說法各寫一列，帶著性別、禮貌、說明：
  *
  *                     chinese_text  thai_text  gender_usage  politeness  note
@@ -61,8 +81,9 @@ package com.tim.language_project.service;
  *                     我            ฉัน          FEMALE        FORMAL      女生自稱
  *                     我            กู           BOTH          RUDE        很不客氣
  *
- *        是空的 → 這是「句子查詢」。把逐詞各寫一列，那三個標籤是 null ——
- *                 翻句子時我們不會去問模型「每個詞各適合誰用」。
+ *        persistSegmentation → 你點了「逐詞拆解」。把逐詞各寫一列，
+ *                 那三個標籤是 null —— 拆解時我們不會去問模型
+ *                 「每個詞各適合誰用」，那是「各種說法」那一支的工作。
  *
  *    接著一次問資料庫「這些詞裡面，哪些已經有了？」
  *
@@ -136,8 +157,11 @@ public class TranslationPersistenceService {
     private final VocabularyRepository vocabularyRepository;
 
     /**
-     * 寫入一次完整的查詢結果，回傳快取那一筆的 id。
+     * 寫入整句的翻譯結果，回傳快取那一筆的 id。
      * 音檔不在這裡處理 —— 全站的音檔由 AudioAssetService 統一管理。
+     *
+     * ★ 2026-08-16 起這裡「只寫整句那一列」。
+     *   逐詞與各種說法是使用者點了才跑的獨立呼叫，各自有自己的寫入方法。
      */
     @Transactional
     public Long persist(String sourceText,
@@ -154,12 +178,41 @@ public class TranslationPersistenceService {
         query.setRomanization(result.romanization());
 
         // saveAndFlush 是為了立刻拿到資料庫產生的 id，下一步當外鍵用。
-        TranslationQuery savedQuery = translationQueryRepository.saveAndFlush(query);
+        return translationQueryRepository.saveAndFlush(query).getId();
+    }
 
-        persistSegments(savedQuery.getId(), result.words());
-        persistVocabulary(sourceText, result);
+    /**
+     * 寫入逐詞拆解：translation_segment 一列一個詞，同時把這些詞沉澱進單字庫。
+     * 使用者點開「逐詞拆解」時才會走到這裡。
+     *
+     * @param queryId    這次拆解屬於哪一筆查詢，當外鍵用
+     * @param sourceText 使用者當初輸入的原文，用來判斷單字庫的 source_type
+     */
+    @Transactional
+    public void persistSegmentation(Long queryId, String sourceText, List<TranslationWord> words) {
+        if (ObjectUtils.isEmpty(words)) {
+            return;
+        }
 
-        return savedQuery.getId();
+        persistSegments(queryId, words);
+        persistVocabulary(fromWords(sourceText, words));
+    }
+
+    /**
+     * 寫入各種說法：只沉澱進單字庫，沒有對應的 segment。
+     * 使用者點開「各種說法」時才會走到這裡。
+     *
+     * @param chineseText 這個詞的中文面，單字庫的每一列都掛在它底下
+     */
+    @Transactional
+    public void persistVariants(String sourceText,
+                                String chineseText,
+                                List<TranslationVariant> variants) {
+        if (ObjectUtils.isEmpty(variants)) {
+            return;
+        }
+
+        persistVocabulary(fromVariants(sourceText, chineseText, variants));
     }
 
     private void persistSegments(Long queryId, List<TranslationWord> words) {
@@ -184,11 +237,11 @@ public class TranslationPersistenceService {
     }
 
     /**
-     * 把這次的結果沉澱進單字庫。
+     * 把一批候選單字沉澱進單字庫。
      *
-     * 兩種來源：
-     *   variants 有內容 → 這是單字查詢，把每一種說法各寫一列
-     *   variants 是空的 → 這是句子查詢，把逐詞各寫一列（沒有標籤）
+     * 兩種來源，由呼叫端先轉成 Vocabulary 再交進來：
+     *   fromVariants → 各種說法，每一種各一列，帶性別／禮貌標籤
+     *   fromWords    → 逐詞拆解，每個詞各一列，沒有標籤
      *
      * ★ 已經存在的說法不是單純「跳過」。
      *   如果它的性別／禮貌／說明是空的（代表它當初是從句子沉澱下來的），
@@ -196,11 +249,7 @@ public class TranslationPersistenceService {
      *   「我」「你」「他」這些最常出現在句子裡的詞，
      *   會永遠停在沒有標籤的狀態 —— 而那正是這次改版最想解決的詞。
      */
-    private void persistVocabulary(String sourceText, TranslationResult result) {
-        List<Vocabulary> candidates = ObjectUtils.isEmpty(result.variants())
-                ? fromWords(sourceText, result.words())
-                : fromVariants(sourceText, result);
-
+    private void persistVocabulary(List<Vocabulary> candidates) {
         if (ObjectUtils.isEmpty(candidates)) {
             return;
         }
@@ -236,18 +285,20 @@ public class TranslationPersistenceService {
     /**
      * 單字查詢：每一種說法各一列，帶著性別與禮貌標籤。
      */
-    private List<Vocabulary> fromVariants(String sourceText, TranslationResult result) {
+    private List<Vocabulary> fromVariants(String sourceText,
+                                          String chineseText,
+                                          List<TranslationVariant> variants) {
         List<Vocabulary> entries = new ArrayList<>();
 
-        for (TranslationVariant variant : result.variants()) {
+        for (TranslationVariant variant : variants) {
             Vocabulary vocabulary = new Vocabulary();
-            vocabulary.setChineseText(result.chineseText());
+            vocabulary.setChineseText(chineseText);
             vocabulary.setThaiText(variant.thaiText());
             vocabulary.setRomanization(variant.romanization());
             vocabulary.setGenderUsage(variant.genderUsage());
             vocabulary.setPoliteness(variant.politeness());
             vocabulary.setNote(variant.note());
-            vocabulary.setSourceType(Objects.equals(sourceText, result.chineseText())
+            vocabulary.setSourceType(Objects.equals(sourceText, chineseText)
                     ? VocabularySourceTypeEnum.DIRECT
                     : VocabularySourceTypeEnum.SEGMENT);
             entries.add(vocabulary);

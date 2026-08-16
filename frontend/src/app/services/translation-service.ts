@@ -55,6 +55,7 @@
  *        HTTP 200（讀快取）或 201（新建立）—— 兩種都算成功，不用分開處理
  *
  *        {
+ *          "queryId": 137,
  *          "sourceText": "我想喝酒",
  *          "direction": "ZH_TO_TH",
  *          "gender": "MALE",
@@ -63,9 +64,7 @@
  *          "romanization": "pǒm yàak dùuem lâo khráp",
  *          "thaiAudioUrl": "/audio/th/a3f9c2b81e47.mp3",
  *          "chineseAudioUrl": null,
- *          "fromCache": true,
- *          "segments": [ { "seqNo": 1, "chineseText": "我", ... }, ... ],
- *          "variants": []
+ *          "fromCache": true
  *        }
  *
  *              ↓ post<TranslationResponse> 的角括號就是在說「這包是這個形狀」
@@ -98,6 +97,29 @@
  *  ★ 為什麼不在查詢時就把逐詞音檔全做好？
  *    一句話拆成四五個詞，每個都生要多打四五次 OpenAI、多等好幾秒，
  *    而那些詞你未必想聽。改成「想聽哪個就點哪個」。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ *  ★ 另外兩支 API：逐詞拆解與各種說法（2026-08-16 新增）
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ *  跟上面的音檔是同一套思路，只是這次省的不是幾秒，是二十幾秒。
+ *
+ *  以前一次翻譯就要模型把翻譯、拼音、逐詞拆解、各種說法全部產出來，
+ *  實測平均 867 個 token。模型是一個 token 一個 token 吐的，
+ *  以每秒約 40 個計算，光是產出就要 22 秒 —— 這就是「第一次查詢好慢」的真正原因。
+ *
+ *  ★ 而你按下查詢的那一刻，只想看到泰文和拼音。
+ *
+ *  所以拆成三支，後兩支等你在畫面上點下去才打：
+ *
+ *        POST /api/v1/translations/137/segments   →  [ {逐詞}, {逐詞}, ... ]
+ *        POST /api/v1/translations/137/variants   →  [ {說法}, {說法}, ... ]
+ *
+ *  ★ 為什麼是 POST 不是 GET？因為這兩支「可能會呼叫 OpenAI 並寫資料庫」。
+ *    GET 在規範上代表只讀不寫，瀏覽器和中間的快取都會依這個前提行事，
+ *    用 GET 的話重新整理或預先載入都可能默默多花一次錢。
+ *
+ *  ★ 137 是哪來的？就是第 4 步回應裡的 queryId。
  */
 
 import { Service, inject } from '@angular/core';
@@ -108,6 +130,8 @@ import {
   SpeakerGender,
   SpeechLanguage,
   TranslationResponse,
+  TranslationSegment,
+  TranslationVariant,
 } from '../models/translation';
 
 /**
@@ -137,5 +161,27 @@ export class TranslationService {
   synthesize(speechText: string, language: SpeechLanguage): Observable<AudioResponse> {
     return this.http.post<AudioResponse>(
       '/api/v1/audio', { speechText, language });
+  }
+
+  /**
+   * 取得一筆查詢的逐詞拆解。使用者點了「逐詞拆解」才會呼叫。
+   * 後端會先查資料庫，沒有才呼叫 OpenAI —— 同一句話拆第二次不會再花錢。
+   *
+   * @param queryId 翻譯回應裡的 queryId
+   */
+  segments(queryId: number): Observable<TranslationSegment[]> {
+    return this.http.post<TranslationSegment[]>(
+      `/api/v1/translations/${queryId}/segments`, null);
+  }
+
+  /**
+   * 取得一個詞的各種說法。使用者點了「各種說法」才會呼叫。
+   * 查句子時會回空陣列 —— 整句沒有「另一種說法」這種東西，那是正常結果不是錯誤。
+   *
+   * @param queryId 翻譯回應裡的 queryId
+   */
+  variants(queryId: number): Observable<TranslationVariant[]> {
+    return this.http.post<TranslationVariant[]>(
+      `/api/v1/translations/${queryId}/variants`, null);
   }
 }

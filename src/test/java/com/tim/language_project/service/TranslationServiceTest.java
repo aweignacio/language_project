@@ -48,13 +48,16 @@ package com.tim.language_project.service;
  */
 
 import com.tim.language_project.client.TranslationClient;
+import com.tim.language_project.client.model.SegmentationResult;
 import com.tim.language_project.client.model.TranslationResult;
+import com.tim.language_project.client.model.VariantResult;
 import com.tim.language_project.client.model.TranslationVariant;
 import com.tim.language_project.client.model.TranslationWord;
 import com.tim.language_project.config.AudioStorageProperties;
 import com.tim.language_project.dto.response.TranslationQueryDto;
 import com.tim.language_project.dto.response.TranslationResponseDto;
 import com.tim.language_project.dto.response.TranslationSegmentDto;
+import com.tim.language_project.dto.response.TranslationVariantDto;
 import com.tim.language_project.dto.response.VocabularyDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
 import com.tim.language_project.enums.GenderUsageEnum;
@@ -138,9 +141,6 @@ class TranslationServiceTest {
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
                         "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp")));
-        when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
-                .thenReturn(List.of(new TranslationSegmentDto(
-                        1, "我", "ผม", "pǒm", null, null)));
         when(audioAssetService.findExistingAudioUrl(anyString(), any()))
                 .thenReturn(Optional.of("/audio/th/a3f9c2.mp3"));
 
@@ -157,52 +157,149 @@ class TranslationServiceTest {
     }
 
     /*
-     * ═══ 測試一之二：快取命中時，逐詞的音檔網址也要帶出來 ═══════════════
+     * ═══ 測試一之二：逐詞的音檔網址要補上去 ═══════════════
      *
      * ★ 這是 2026-08-14 抓到的 bug。
      *
      *   逐詞的音檔不在 translation_segment 那張表裡（音檔由 audio_asset 持有），
      *   所以那個 JPQL 查詢的兩個音檔欄位一律回 null，本來就打算「由 Service 補上」。
-     *   但補的那段當初漏寫了，導致快取命中時每一顆逐詞播放鍵都是灰的 ——
+     *   但補的那段當初漏寫了，導致每一顆逐詞播放鍵都是灰的 ——
      *   即使那個詞的音檔明明已經躺在 audio_asset 裡。
      *
-     *   症狀很不明顯：畫面照常、點下去也會有聲音（它會去合成，但後端查得到現成的
-     *   所以不花錢），只是「該亮的沒亮」，看起來像是音檔一直沒生出來。
+     *   症狀很不明顯：畫面照常、點下去也會有聲音，只是「該亮的沒亮」。
+     *
+     * ★ 2026-08-16 改到 resolveSegments 上：逐詞現在是點了才跑的獨立 API，
+     *   但「資料庫裡已經有拆解就不該再花錢」這件事也一併釘在這裡。
      */
     @Test
-    @DisplayName("快取命中時逐詞的音檔網址也要一起帶出來")
-    void shouldFillSegmentAudioUrlsOnCacheHit() {
-        when(translationQueryRepository.findByKey(
-                "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+    @DisplayName("逐詞已存在時不該再呼叫 AI，且音檔網址要補上")
+    void shouldFillSegmentAudioUrlsFromDatabase() {
+        when(translationQueryRepository.findDtoById(1L))
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
                         "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo")));
 
         // ★ Repository 回來的逐詞資料，音檔欄位本來就是 null
-        when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
+        when(translationSegmentRepository.findByThaiTextOrderBySeqNo("ผมอยากดื่มเหล้า"))
                 .thenReturn(List.of(new TranslationSegmentDto(
                         1, "我", "ผม", "pǒm", null, null)));
 
-        when(vocabularyRepository.findByChineseText("我想喝酒")).thenReturn(List.of());
-
         // 而 audio_asset 裡明明就有「ผม」的音檔
-        when(audioAssetService.findExistingAudioUrl("ผม", SpeechLanguageEnum.TH))
-                .thenReturn(Optional.of("/audio/th/e224acae.mp3"));
         when(audioAssetService.findExistingAudioUrl(anyString(), any()))
                 .thenReturn(Optional.empty());
         when(audioAssetService.findExistingAudioUrl("ผม", SpeechLanguageEnum.TH))
                 .thenReturn(Optional.of("/audio/th/e224acae.mp3"));
 
-        TranslationResponseDto response =
-                translationService.translate("我想喝酒", SpeakerGenderEnum.MALE);
+        List<TranslationSegmentDto> segments = translationService.resolveSegments(1L);
 
         // ★ 重點：那顆播放鍵要是亮的
-        assertThat(response.segments()).hasSize(1);
-        assertThat(response.segments().get(0).thaiAudioUrl())
-                .isEqualTo("/audio/th/e224acae.mp3");
+        assertThat(segments).hasSize(1);
+        assertThat(segments.get(0).thaiAudioUrl()).isEqualTo("/audio/th/e224acae.mp3");
 
-        // 而且是「只查不生」—— 快取命中不可以花錢
+        // 而且資料庫已經有了就不可以再呼叫 AI，也不可以去合成語音
+        verify(translationClient, never()).segment(anyString(), anyString());
         verify(audioAssetService, never()).resolveAudioUrl(anyString(), any());
+    }
+
+    /*
+     * ═══ 測試一之三：逐詞還沒拆過時，才去問 AI 並寫回資料庫 ═══
+     *
+     * ★ 忘了寫回資料庫的症狀：畫面完全正常，但你每點一次「逐詞拆解」
+     *   就重新付一次 OpenAI 的錢 —— 而你永遠不會發現，
+     *   因為每次看到的結果都一樣。
+     */
+    @Test
+    @DisplayName("逐詞尚未拆解時應呼叫 AI 並寫回資料庫")
+    void shouldCallClientAndPersistWhenSegmentsAreMissing() {
+        when(translationQueryRepository.findDtoById(1L))
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "我想喝酒", "ผมอยาก", "pǒm yàak")));
+        when(translationSegmentRepository.findByThaiTextOrderBySeqNo("ผมอยาก"))
+                .thenReturn(List.of());
+        when(translationClient.segment("我想喝酒", "ผมอยาก"))
+                .thenReturn(new SegmentationResult(
+                        List.of(new TranslationWord("我", "ผม", "pǒm")),
+                        "gpt-test", 40L, 30L));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.empty());
+
+        List<TranslationSegmentDto> segments = translationService.resolveSegments(1L);
+
+        assertThat(segments).hasSize(1);
+        assertThat(segments.get(0).chineseText()).isEqualTo("我");
+
+        // ★ 拆出來的東西一定要存起來，下次才不用再付一次錢
+        verify(translationPersistenceService)
+                .persistSegmentation(eq(1L), eq("我想喝酒"), any());
+
+        // ★ 逐詞音檔是「點了才生」，這裡只查現成的 ——
+        //   一句話拆成四五個詞，每個都生要多等好幾秒，而那些詞你未必想聽。
+        verify(audioAssetService, never()).resolveAudioUrl(anyString(), any());
+    }
+
+    /*
+     * ═══ 測試一之四：各種說法已在單字庫時不該再呼叫 AI ═══════
+     *
+     * ★ 單字庫只有一列時要當作「還沒問過」而不是「只有一種說法」。
+     *   那一列通常是查整句時從逐詞沉澱下來的，本來就沒有其他說法可比 ——
+     *   把它當成答案的話，「我」「你」「他」這些最常出現在句子裡的詞，
+     *   永遠只會有一種說法，而那正是這個功能最想解決的詞。
+     */
+    @Test
+    @DisplayName("單字庫已有多種說法時不該再呼叫 AI")
+    void shouldReuseVariantsFromVocabulary() {
+        when(translationQueryRepository.findDtoById(9L))
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        9L, "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "我", "ผม", "pǒm")));
+        when(vocabularyRepository.findByChineseText("我"))
+                .thenReturn(List.of(
+                        new VocabularyDto(7L, "我", "ผม", "pǒm",
+                                GenderUsageEnum.MALE, PolitenessEnum.FORMAL, "男生自稱"),
+                        new VocabularyDto(8L, "我", "ฉัน", "chǎn",
+                                GenderUsageEnum.FEMALE, PolitenessEnum.FORMAL, "女生自稱")));
+        when(audioAssetService.findExistingAudioUrl(anyString(), any()))
+                .thenReturn(Optional.empty());
+
+        List<TranslationVariantDto> variants = translationService.resolveVariants(9L);
+
+        assertThat(variants).hasSize(2);
+        verify(translationClient, never()).variants(anyString(), anyString());
+    }
+
+    /*
+     * ═══ 測試一之五：各種說法還沒問過時，才去問 AI 並沉澱進單字庫 ═
+     */
+    @Test
+    @DisplayName("各種說法尚未問過時應呼叫 AI 並沉澱進單字庫")
+    void shouldCallClientAndPersistWhenVariantsAreMissing() {
+        when(translationQueryRepository.findDtoById(9L))
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        9L, "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "我", "ผม", "pǒm")));
+        // 單字庫只有一列 → 當作「還沒問過」
+        when(vocabularyRepository.findByChineseText("我"))
+                .thenReturn(List.of(new VocabularyDto(
+                        7L, "我", "ฉัน", "chǎn", null, null, null)));
+        when(translationClient.variants("我", "ผม"))
+                .thenReturn(new VariantResult(List.of(
+                        new TranslationVariant("ผม", "pǒm",
+                                GenderUsageEnum.MALE, PolitenessEnum.FORMAL, "男生自稱"),
+                        new TranslationVariant("ฉัน", "chǎn",
+                                GenderUsageEnum.FEMALE, PolitenessEnum.FORMAL, "女生自稱")),
+                        "gpt-test", 50L, 40L));
+        when(audioAssetService.resolveAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/a1b2c3.mp3"));
+
+        List<TranslationVariantDto> variants = translationService.resolveVariants(9L);
+
+        assertThat(variants).hasSize(2);
+        verify(translationPersistenceService).persistVariants(eq("我"), eq("我"), any());
+
+        // ★ 說法的音檔要生 —— 你點這顆按鈕就是想知道這幾種說法各自怎麼唇，
+        //   還要再點一次才有聲音就很麻煩。
+        verify(audioAssetService).resolveAudioUrl("ผม", SpeechLanguageEnum.TH);
     }
 
     /*
@@ -219,10 +316,6 @@ class TranslationServiceTest {
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
                         "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm")));
-        when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
-                .thenReturn(List.of());
-        when(vocabularyRepository.findByChineseText("我想喝酒")).thenReturn(List.of());
-
         TranslationResponseDto response =
                 translationService.translate("  我想喝酒  ", SpeakerGenderEnum.MALE);
 
@@ -284,7 +377,6 @@ class TranslationServiceTest {
 
         // ★ 音檔是 null，但翻譯結果完整回傳了
         assertThat(response.thaiAudioUrl()).isNull();
-        assertThat(response.segments()).hasSize(1);
 
         // 而且照樣存進資料庫 —— 沒有音檔不代表這次查詢不值得快取
         verify(translationPersistenceService).persist(any(), any(), any(), any());
@@ -343,10 +435,6 @@ class TranslationServiceTest {
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         88L, "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
                         "水", "น้ำ", "náam")));
-        when(translationSegmentRepository.findByQueryIdOrderBySeqNo(88L))
-                .thenReturn(List.of(new TranslationSegmentDto(
-                        1, "水", "น้ำ", "náam", null, null)));
-        when(vocabularyRepository.findByChineseText("水")).thenReturn(List.of());
         when(translationClient.translate(
                 "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(singleWordResult());
@@ -365,7 +453,7 @@ class TranslationServiceTest {
         // ★ 沒有丟出例外，而且回的是別人寫好的那筆
         assertThat(response.thaiText()).isEqualTo("น้ำ");
         assertThat(response.fromCache()).isTrue();
-        assertThat(response.segments()).hasSize(1);
+        assertThat(response.queryId()).isEqualTo(88L);
     }
 
     /*
@@ -390,10 +478,6 @@ class TranslationServiceTest {
         when(translationQueryRepository.findByKey(
                 "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(Optional.empty());
-        // 單字庫裡明明已經有「我」了
-        when(vocabularyRepository.findByChineseText("我"))
-                .thenReturn(List.of(new VocabularyDto(
-                        7L, "我", "ฉัน", "chǎn", null, null, null)));
         when(translationClient.translate(
                 "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(singleWordResultWithVariants());
@@ -408,7 +492,7 @@ class TranslationServiceTest {
         // ★ 重點：AI 一定要被呼叫，不可以被單字庫擋下來
         verify(translationClient).translate(
                 "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE);
-        assertThat(response.variants()).hasSize(3);
+        assertThat(response.thaiText()).isEqualTo("ผม");
     }
 
     /*
@@ -426,9 +510,6 @@ class TranslationServiceTest {
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH,
                         SpeakerGenderEnum.FEMALE, "我想喝酒",
                         "ฉันอยากดื่มเหล้าค่ะ", "chǎn yàak dùuem lâo khâ")));
-        when(translationSegmentRepository.findByQueryIdOrderBySeqNo(1L))
-                .thenReturn(List.of());
-        when(vocabularyRepository.findByChineseText("我想喝酒")).thenReturn(List.of());
         when(audioAssetService.findExistingAudioUrl(anyString(), any()))
                 .thenReturn(Optional.of("/audio/th/a1b2c3.mp3"));
 
@@ -536,27 +617,21 @@ class TranslationServiceTest {
         assertThat(response.thaiAudioUrl()).isEqualTo("/audio/th/a1b2c3.mp3");
     }
 
-    /** 一個沒有多重說法的單字結果（模擬「大部分的詞就只有一種說法」）。 */
+    /**
+     * 一個單字的翻譯結果。
+     * ★ 2026-08-16 起 TranslationResult 只剩整句 ——
+     *   逐詞跟各種說法各自是獨立的呼叫，有自己的回傳型別。
+     */
     private TranslationResult singleWordResult() {
         return new TranslationResult(
                 "水", "น้ำ", "náam",
-                List.of(new TranslationWord("水", "น้ำ", "náam")),
-                List.of(),
                 "gpt-test", 10L, 5L, true);
     }
 
-    /** 「我」的三種說法。 */
+    /** 「我」的翻譯結果。 */
     private TranslationResult singleWordResultWithVariants() {
         return new TranslationResult(
                 "我", "ผม", "pǒm",
-                List.of(new TranslationWord("我", "ผม", "pǒm")),
-                List.of(
-                        new TranslationVariant("ผม", "pǒm",
-                                GenderUsageEnum.MALE, PolitenessEnum.FORMAL, "男生自稱"),
-                        new TranslationVariant("ฉัน", "chǎn",
-                                GenderUsageEnum.FEMALE, PolitenessEnum.FORMAL, "女生自稱"),
-                        new TranslationVariant("กู", "guu",
-                                GenderUsageEnum.BOTH, PolitenessEnum.RUDE, "很不客氣")),
                 "gpt-test", 100L, 50L, true);
     }
 
@@ -564,8 +639,6 @@ class TranslationServiceTest {
     private TranslationResult thaiToChineseResult() {
         return new TranslationResult(
                 "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo",
-                List.of(new TranslationWord("我", "ผม", "pǒm")),
-                List.of(),
                 "gpt-test", 80L, 40L, true);
     }
 }

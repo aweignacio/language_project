@@ -164,116 +164,164 @@
       </button>
 
       <!--
-        各種說法。只有查「單一個詞」時才有內容（查句子時是空陣列）。
-        排序由 sortedVariants 決定：符合你性別的排前面，再依禮貌程度。
-        異性的說法刻意不隱藏 —— 對方跟你講話時就是會用那種說法。
+        ★ 各種說法與逐詞拆解：點一下才往下長出來（2026-08-16）
+
+        以前這兩塊是跟翻譯一起回來的，一查完就長在畫面上。
+        但那代表每次查詢都要等模型把它們產出來 —— 實測平均 867 個 token，
+        光是產出就要二十幾秒，而大部分時候你根本不會去看。
+
+        現在各自一顆按鈕，點了才去要。
       -->
-      @if (translation.variants.length) {
-        <section class="variants">
-          <h2 class="variants__caption">各種說法</h2>
+      <div class="expanders">
+        <button
+          class="expander"
+          type="button"
+          [class.expander--open]="variantsExpanded()"
+          [disabled]="variantsLoading()"
+          (click)="loadVariants()">
+          {{ variantsLoading() ? '載入中…'
+           : variantsExpanded() ? '▾ 各種說法' : '▸ 各種說法' }}
+        </button>
 
-          <ul class="variants__list">
-            @for (variant of sortedVariants(translation.variants);
-                  track variant.thaiText; let first = $first) {
-              <li class="variants__item"
-                  [class.variants__item--match]="matchesGender(variant)">
+        <button
+          class="expander"
+          type="button"
+          [class.expander--open]="segmentsExpanded()"
+          [disabled]="segmentsLoading()"
+          (click)="loadSegments()">
+          {{ segmentsLoading() ? '載入中…'
+           : segmentsExpanded() ? '▾ 逐詞拆解' : '▸ 逐詞拆解' }}
+        </button>
+      </div>
 
-                <div class="variants__main">
-                  <span class="variants__thai">{{ variant.thaiText }}</span>
-                  <span class="variants__romanization">{{ variant.romanization }}</span>
-
-                  <button
-                    class="wordplay"
-                    type="button"
-                    [class.wordplay--ready]="variant.thaiAudioUrl"
-                    [class.wordplay--loading]="isSynthesizing(variant.thaiText)"
-                    [attr.aria-label]="'播放 ' + variant.thaiText"
-                    (click)="playOrSynthesize(variant, 'TH')">
-                    {{ isSynthesizing(variant.thaiText) ? '···' : '▶' }}
-                  </button>
-
-                  <!--
-                    ★ 標籤這一組放在「主列裡面」，不是自己一列。
-
-                    分成兩列的話每個說法會多佔一整行，五個說法就多捲一個畫面。
-                    包一層 div 是為了讓它們在窄螢幕時「整組一起」折到下一行
-                    （見 css 的 .variants__tags flex-basis），
-                    不包的話會折得七零八落：播放鍵被推到標籤中間、
-                    兩個標籤又拆到不同行。
-                  -->
-                  <div class="variants__tags">
-                    <span class="tag tag--gender">
-                      {{ variant.genderUsage === 'MALE' ? '男性'
-                       : variant.genderUsage === 'FEMALE' ? '女性' : '不分性別' }}
-                    </span>
-
-                    <!-- ★ RUDE 用警示色。用錯場合的後果是冒犯到人，不是講得不夠好 -->
-                    <span class="tag"
-                          [class.tag--rude]="variant.politeness === 'RUDE'"
-                          [class.tag--politeness]="variant.politeness !== 'RUDE'">
-                      {{ variant.politeness === 'FORMAL' ? '正式'
-                       : variant.politeness === 'NEUTRAL' ? '一般'
-                       : variant.politeness === 'CASUAL' ? '隨性' : '粗俗' }}
-                    </span>
-
-                    @if (first && matchesGender(variant)) {
-                      <span class="tag tag--suggested">★ 適合你</span>
-                    }
-                  </div>
-                </div>
-
-                @if (variant.note) {
-                  <p class="variants__note">{{ variant.note }}</p>
-                }
-              </li>
-            }
-          </ul>
-        </section>
+      @if (variantsFailed()) {
+        <p class="expander__hint">各種說法載入失敗，再點一次試試。</p>
       }
 
-      @if (translation.segments.length) {
-        <table class="segments">
-          <caption class="segments__caption">逐詞對照</caption>
-          <thead>
-            <tr>
-              <th scope="col" class="segments__seq">#</th>
-              <th scope="col">中文</th>
-              <th scope="col">泰文</th>
-              <th scope="col">羅馬拼音</th>
-              <th scope="col" class="segments__play">發音</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (segment of translation.segments; track segment.seqNo) {
-              <tr>
-                <td class="segments__seq">{{ segment.seqNo }}</td>
-                <td class="segments__chinese">{{ segment.chineseText }}</td>
-                <td class="segments__thai">{{ segment.thaiText }}</td>
-                <td class="segments__romanization">{{ segment.romanization }}</td>
+      <!--
+        ★ 空陣列要跟「還沒點過」分開顯示。
+        查句子時本來就沒有別種說法，不說一聲的話看起來就像按鈕壞了。
+      -->
+      @if (variantsExpanded() && variants(); as loadedVariants) {
+        @if (loadedVariants.length) {
+          <!--
+            排序由 sortedVariants 決定：符合你性別的排前面，再依禮貌程度。
+            異性的說法刻意不隱藏 —— 對方跟你講話時就是會用那種說法。
+          -->
+          <section class="variants">
+            <ul class="variants__list">
+              @for (variant of sortedVariants(loadedVariants);
+                    track variant.thaiText; let first = $first) {
+                <li class="variants__item"
+                    [class.variants__item--match]="matchesGender(variant)">
 
-                <!--
-                  灰色代表音檔還沒產生，點下去才會跟後端要（第一次要等一兩秒）。
-                  產生過的詞在任何句子裡都是亮的，因為音檔以文字內容為鍵全站共用。
-                -->
-                <td class="segments__play">
-                  <button
-                    class="wordplay"
-                    type="button"
-                    [class.wordplay--ready]="segment.thaiAudioUrl"
-                    [class.wordplay--loading]="isSynthesizing(segment.thaiText)"
-                    [attr.aria-label]="'播放 ' + segment.thaiText"
-                    (click)="playOrSynthesize(segment, 'TH')">
-                    {{ isSynthesizing(segment.thaiText) ? '···' : '▶' }}
-                  </button>
-                </td>
+                  <div class="variants__main">
+                    <span class="variants__thai">{{ variant.thaiText }}</span>
+                    <span class="variants__romanization">{{ variant.romanization }}</span>
+
+                    <button
+                      class="wordplay"
+                      type="button"
+                      [class.wordplay--ready]="variant.thaiAudioUrl"
+                      [class.wordplay--loading]="isSynthesizing(variant.thaiText)"
+                      [attr.aria-label]="'播放 ' + variant.thaiText"
+                      (click)="playOrSynthesize(variant, 'TH')">
+                      {{ isSynthesizing(variant.thaiText) ? '···' : '▶' }}
+                    </button>
+
+                    <!--
+                      ★ 標籤這一組放在「主列裡面」，不是自己一列。
+
+                      分成兩列的話每個說法會多佔一整行，五個說法就多捲一個畫面。
+                      包一層 div 是為了讓它們在窄螢幕時「整組一起」折到下一行
+                      （見 css 的 .variants__tags flex-basis），
+                      不包的話會折得七零八落：播放鍵被推到標籤中間、
+                      兩個標籤又拆到不同行。
+                    -->
+                    <div class="variants__tags">
+                      <span class="tag tag--gender">
+                        {{ variant.genderUsage === 'MALE' ? '男性'
+                         : variant.genderUsage === 'FEMALE' ? '女性' : '不分性別' }}
+                      </span>
+
+                      <!-- ★ RUDE 用警示色。用錯場合的後果是冒犯到人，不是講得不夠好 -->
+                      <span class="tag"
+                            [class.tag--rude]="variant.politeness === 'RUDE'"
+                            [class.tag--politeness]="variant.politeness !== 'RUDE'">
+                        {{ variant.politeness === 'FORMAL' ? '正式'
+                         : variant.politeness === 'NEUTRAL' ? '一般'
+                         : variant.politeness === 'CASUAL' ? '隨性' : '粗俗' }}
+                      </span>
+
+                      @if (first && matchesGender(variant)) {
+                        <span class="tag tag--suggested">★ 適合你</span>
+                      }
+                    </div>
+                  </div>
+
+                  @if (variant.note) {
+                    <p class="variants__note">{{ variant.note }}</p>
+                  }
+                </li>
+              }
+            </ul>
+          </section>
+        } @else {
+          <p class="expander__hint">這一句沒有其他說法（只有單一個詞才會有）。</p>
+        }
+      }
+
+      @if (segmentsFailed()) {
+        <p class="expander__hint">逐詞拆解載入失敗，再點一次試試。</p>
+      }
+
+      @if (segmentsExpanded() && segments(); as loadedSegments) {
+        @if (loadedSegments.length) {
+          <table class="segments">
+            <thead>
+              <tr>
+                <th scope="col" class="segments__seq">#</th>
+                <th scope="col">中文</th>
+                <th scope="col">泰文</th>
+                <th scope="col">羅馬拼音</th>
+                <th scope="col" class="segments__play">發音</th>
               </tr>
-            }
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              @for (segment of loadedSegments; track segment.seqNo) {
+                <tr>
+                  <td class="segments__seq">{{ segment.seqNo }}</td>
+                  <td class="segments__chinese">{{ segment.chineseText }}</td>
+                  <td class="segments__thai">{{ segment.thaiText }}</td>
+                  <td class="segments__romanization">{{ segment.romanization }}</td>
+
+                  <!--
+                    灰色代表音檔還沒產生，點下去才會跟後端要（第一次要等一兩秒）。
+                    產生過的詞在任何句子裡都是亮的，因為音檔以文字內容為鍵全站共用。
+                  -->
+                  <td class="segments__play">
+                    <button
+                      class="wordplay"
+                      type="button"
+                      [class.wordplay--ready]="segment.thaiAudioUrl"
+                      [class.wordplay--loading]="isSynthesizing(segment.thaiText)"
+                      [attr.aria-label]="'播放 ' + segment.thaiText"
+                      (click)="playOrSynthesize(segment, 'TH')">
+                      {{ isSynthesizing(segment.thaiText) ? '···' : '▶' }}
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        } @else {
+          <p class="expander__hint">這一句拆不出逐詞對照。</p>
+        }
       }
 
     </section>
   }
+
 
   <!--
     這個 <audio> 永遠留在畫面上（藏起來），不放進上面的 @if 裡面。

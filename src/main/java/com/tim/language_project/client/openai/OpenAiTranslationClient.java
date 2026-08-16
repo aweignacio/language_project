@@ -211,7 +211,9 @@ package com.tim.language_project.client.openai;
  */
 
 import com.tim.language_project.client.TranslationClient;
+import com.tim.language_project.client.model.SegmentationResult;
 import com.tim.language_project.client.model.TranslationResult;
+import com.tim.language_project.client.model.VariantResult;
 import com.tim.language_project.client.model.TranslationVariant;
 import com.tim.language_project.client.model.TranslationWord;
 import com.tim.language_project.client.usage.ApiUsageRecorder;
@@ -265,7 +267,10 @@ public class OpenAiTranslationClient implements TranslationClient {
             1. chineseText：原封不動的輸入內容
             2. thaiText：整段對應的泰文
             3. romanization：「thaiText」的羅馬拼音，需標註聲調符號（例如 chǎn、dùuem、lâo）
-            4. words：逐詞對照，把輸入依照語意切成詞，每個詞給出中文、泰文、羅馬拼音
+
+            ★ 不需要逐詞拆解。那是另一次呼叫的工作（見 SEGMENT_PROMPT），
+              使用者點了「逐詞拆解」才會跑。這裡請專心把整句翻好就好，
+              產出越短，使用者等待的時間越短。
 
             ★ romanization 欄位最容易搞錯，請特別注意：
 
@@ -275,42 +280,6 @@ public class OpenAiTranslationClient implements TranslationClient {
               輸入「我想喝酒」→ 泰文是 ฉันอยากดื่มเหล้า
                  正確：chǎn yàak dùuem lâo    （這是泰文的唸法）
                  錯誤：wǒ xiǎng hē jiǔ         （這是中文的唸法，不要這樣寫）
-
-            自我檢查：romanization 應該等於 words 裡每個詞的 romanization
-            依序串起來的結果。對不起來就是寫錯了，請重寫。
-
-            逐詞對照的規則：
-            - 輸入若只有一個詞，words 就只有一個元素
-            - 詞的順序必須與泰文語序一致
-            - 每個詞的泰文必須是該詞單獨使用時的寫法
-
-            ★ 切詞要切到多細（這一條最容易做不一致，請嚴格遵守）：
-
-            拆到「還能單獨使用、單獨查字典查得到」的最小單位。
-
-            動詞和它的受詞一定要拆開：
-               「我要喝酒」→ 我 ／ 要 ／ 喝 ／ 酒
-                 正確：喝 = ดื่ม、酒 = เหล้า      （分成兩個元素）
-                 錯誤：喝酒 = ดื่มเหล้า           （合成一個，不可以這樣）
-
-               「我想吃飯」→ 我 ／ 想 ／ 吃 ／ 飯
-                 正確：吃 = กิน、飯 = ข้าว
-                 錯誤：吃飯 = กินข้าว
-
-            但本來就是一個詞的，不可以硬拆：
-               「計程車」是一個詞 = แท็กซี่   （不可以拆成「計程」＋「車」）
-               「便利商店」是一個詞           （不可以拆成「便利」＋「商店」）
-
-            判斷方法：拆出來的每一塊，單獨拿去查字典都要查得到，
-            而且合起來要能還原成原句。
-
-            ★ 同樣的詞在不同句子裡必須切得一樣。
-              「我要喝酒」和「我想要喝酒」裡的「喝酒」都要拆成「喝」＋「酒」，
-              不可以因為句子長短不同就切得不一樣。
-
-            ★ 句尾助詞（ครับ、ค่ะ、นะ）也要列進 words，
-              它們的 chineseText 一律填成加括號的標籤，例如「（男性禮貌語助詞）」。
-              有時加括號有時不加的話，單字庫裡會出現兩筆看起來一樣的東西。
 
             說話者的性別會在使用者訊息裡指明，造句時請遵守：
             - 男性：自稱用 ผม，需要禮貌助詞時用 ครับ
@@ -337,23 +306,8 @@ public class OpenAiTranslationClient implements TranslationClient {
             判斷方法：這句話是「對著另一個人說、而且需要客氣」的嗎？
             是 → 加；只是在講自己的事或描述狀況 → 不加。
 
-            variants —— 這個詞的各種說法（只有輸入是單一個詞時才要填）：
-
-            如果 words 只有一個元素，請額外列出這個詞在泰文的各種說法，每個給出：
-              thaiText      泰文
-              romanization  羅馬拼音（含聲調符號）
-              genderUsage   MALE / FEMALE / BOTH ——「哪種性別的人會這樣說」，
-                            不分性別就填 BOTH
-              politeness    FORMAL / NEUTRAL / CASUAL / RUDE
-              note          一句中文說明，講清楚什麼場合用、對誰用會失禮
-
-            variants 的規則（很重要）：
-            - 最多 5 個
-            - ★ 寧可只給一個，也不要為了看起來豐富而硬湊。
-              大部分的詞就只有一種說法，這很正常，誠實回報即可。
-            - 不同的說法泰文必須真的不同。
-              不可以拿同一個泰文換個拼音寫法充數。
-            - words 超過一個元素時，variants 給空陣列。
+            ★ 也不需要列出「這個詞的各種說法」。那同樣是另一次呼叫的工作
+              （見 VARIANT_PROMPT），使用者點了「多種說法」才會跑。
 
             """ + HONESTY_RULES;
 
@@ -364,7 +318,10 @@ public class OpenAiTranslationClient implements TranslationClient {
             1. thaiText：原封不動的輸入內容
             2. chineseText：整句翻成自然的繁體中文
             3. romanization：「thaiText」的羅馬拼音，需標註聲調符號
-            4. words：逐詞對照，把泰文依語意切成詞，每個詞給出泰文、羅馬拼音、中文意思
+
+            ★ 不需要逐詞拆解，也不需要各種說法。那兩件事各自是另一次呼叫
+              （見 SEGMENT_PROMPT 與 VARIANT_PROMPT），使用者點了才會跑。
+              這裡請專心把整句翻好 —— 產出越短，使用者等待的時間越短。
 
             ★ chineseText 必須是「乾淨的一句中文」，不可以加任何註解或括號說明。
 
@@ -375,11 +332,28 @@ public class OpenAiTranslationClient implements TranslationClient {
 
               理由：這一句會被直接唸成中文語音給使用者聽。
               黏上註解的話，他會聽到「我想喝酒 男性禮貌語助詞」這種怪東西。
-              助詞的說明只放在 words 裡（見下方），不要放進整句。
+              助詞的說明屬於逐詞拆解，不要放進整句。
+
+            """ + HONESTY_RULES;
+
+    /**
+     * 逐詞拆解專用。使用者在畫面上點了「逐詞拆解」才會用到。
+     *
+     * ★ 這裡的切詞規則是從原本的翻譯提示詞搬過來的，一個字都沒改 ——
+     *   那是實際踩過坑之後調出來的（「喝酒」要拆成「喝」＋「酒」那條尤其），
+     *   搬家時最容易發生的錯誤就是順手「精簡」掉，那會讓拆解品質退回去。
+     */
+    private static final String SEGMENT_PROMPT = """
+            你是泰文的斷詞助理，服務對象是正在學泰文的中文使用者。
+
+            使用者會給你一組已經翻好的中泰對照。你的工作只有一件事：
+            把它拆成逐詞對照，每個詞給出泰文、羅馬拼音、中文意思。
+
+            ★ 不要重新翻譯。那句話已經翻好了，你只負責切分與對照。
 
             ★ 泰文書寫時詞與詞之間沒有空格，切詞是這項工作最重要的部分。
 
-            ★ 切詞要切到多細：
+            ★ 切詞要切到多細（這一條最容易做不一致，請嚴格遵守）：
 
             拆到「還能單獨使用、單獨查字典查得到」的最小單位。
 
@@ -395,17 +369,47 @@ public class OpenAiTranslationClient implements TranslationClient {
 
             ★ 同樣的詞在不同句子裡必須切得一樣，不可以因為句子長短而改變。
 
+            詞的順序必須與泰文語序一致，每個詞的泰文要是它單獨使用時的寫法。
+
             句尾助詞的處理（不要省略）：
-            - ครับ、ค่ะ、นะ、จ๊ะ 這類助詞沒有對應的中文詞，但一定要列進 words
-            - ★ 只在「words 裡那一筆」的 chineseText 填括號標籤，
+            - ครับ、ค่ะ、นะ、จ๊ะ 這類助詞沒有對應的中文詞，但一定要列出來
+            - 它們的 chineseText 一律填成加括號的標籤，
               例如 { "thaiText": "ครับ", "chineseText": "（男性禮貌語助詞）" }。
-              最上層那個整句的 chineseText 絕對不要碰，它必須維持乾淨的一句中文。
-            - ★ 不可以因為「翻不出中文」就把它從 words 裡拿掉。
+              有時加括號有時不加的話，單字庫裡會出現兩筆看起來一樣的東西。
+            - ★ 不可以因為「翻不出中文」就把它拿掉。
               這些是泰文最高頻的字，使用者正需要知道它們在做什麼。
 
-            這個方向不需要 variants，一律回空陣列。
+            romanization 是「泰文怎麼唸」，不是中文的漢語拼音。
+            """;
 
-            """ + HONESTY_RULES;
+    /**
+     * 多種說法專用。使用者在畫面上點了「多種說法」才會用到。
+     *
+     * ★ 規則同樣是從原本的翻譯提示詞搬過來的，包含「寧可只給一個也不要硬湊」
+     *   那一條 —— 那是防止模型為了看起來豐富而編造說法。
+     */
+    private static final String VARIANT_PROMPT = """
+            你是泰文的用語助理，服務對象是正在學泰文的中文使用者。
+
+            使用者會給你一個詞的中泰對照。請列出這個詞在泰文裡的各種說法，
+            每個給出：
+              thaiText      泰文
+              romanization  羅馬拼音（含聲調符號）
+              genderUsage   MALE / FEMALE / BOTH ——「哪種性別的人會這樣說」，
+                            不分性別就填 BOTH
+              politeness    FORMAL / NEUTRAL / CASUAL / RUDE
+              note          一句中文說明，講清楚什麼場合用、對誰用會失禮
+
+            規則（很重要）：
+            - 最多 5 個
+            - ★ 寧可只給一個，也不要為了看起來豐富而硬湊。
+              大部分的詞就只有一種說法，這很正常，誠實回報即可。
+            - 不同的說法泰文必須真的不同。
+              不可以拿同一個泰文換個拼音寫法充數。
+            - 使用者給的那個說法本身也要列進去，不要漏掉。
+
+            romanization 是「泰文怎麼唸」，不是中文的漢語拼音。
+            """;
 
     /** 用來偵測泰文欄位裡有沒有混進中文字（CJK 統一表意文字的範圍）。 */
     private static final Pattern CHINESE_PATTERN = Pattern.compile("[\\u4e00-\\u9fff]");
@@ -470,14 +474,13 @@ public class OpenAiTranslationClient implements TranslationClient {
             }
 
             if (ObjectUtils.isEmpty(payload.thaiText())
-                    || ObjectUtils.isEmpty(payload.romanization())
-                    || ObjectUtils.isEmpty(payload.words())) {
+                    || ObjectUtils.isEmpty(payload.romanization())) {
                 // 說翻得出來卻沒給內容，這是格式錯誤。
                 recordUsage(inputTokens, outputTokens, false);
                 throw new BusinessException(ErrorCodeEnum.TRANSLATION_RESPONSE_INVALID);
             }
 
-            if (containsChinese(payload)) {
+            if (containsChinese(payload.thaiText())) {
                 // 模型翻到一半沒翻完，泰文欄位裡混著中文字。
                 // 這種半成品絕對不能存進快取與單字庫 —— 它會被使用者背起來。
                 recordUsage(inputTokens, outputTokens, false);
@@ -488,17 +491,10 @@ public class OpenAiTranslationClient implements TranslationClient {
 
             recordUsage(inputTokens, outputTokens, true);
 
-            List<TranslationWord> words = payload.words().stream()
-                    .map(word -> new TranslationWord(
-                            word.chineseText(), word.thaiText(), word.romanization()))
-                    .toList();
-
             return new TranslationResult(
                     payload.chineseText(),
                     payload.thaiText(),
                     payload.romanization(),
-                    words,
-                    toVariants(payload.variants()),
                     modelName, inputTokens, outputTokens, true);
 
         } catch (BusinessException businessException) {
@@ -510,6 +506,89 @@ public class OpenAiTranslationClient implements TranslationClient {
             // 只記輸入長度不記內容，避免把使用者輸入寫進日誌。
             log.error("translation call failed for input length {}", sourceText.length(), exception);
             throw new BusinessException(ErrorCodeEnum.TRANSLATION_SERVICE_UNAVAILABLE, exception);
+        }
+    }
+
+    /**
+     * 逐詞拆解。使用者點了「逐詞拆解」才會走到這裡。
+     *
+     * ★ 失敗時的處理跟 translate 不同：這裡不擋整個流程。
+     *   拆解只是輔助資訊，做不出來就回空清單，翻譯結果照樣看得到。
+     *   （translate 失敗會讓使用者什麼都看不到，所以那裡才需要拋例外。）
+     */
+    @Override
+    public SegmentationResult segment(String chineseText, String thaiText) {
+        try {
+            ResponseEntity<ChatResponse, SegmentPayload> response = chatClient.prompt()
+                    .system(SEGMENT_PROMPT)
+                    .user("中文：" + chineseText + "\n泰文：" + thaiText)
+                    .call()
+                    .responseEntity(SegmentPayload.class);
+
+            SegmentPayload payload = response.entity();
+            Usage usage = usageOf(response.response());
+            long inputTokens = toTokenCount(Objects.isNull(usage) ? null : usage.getPromptTokens());
+            long outputTokens = toTokenCount(Objects.isNull(usage) ? null : usage.getCompletionTokens());
+
+            if (Objects.isNull(payload) || ObjectUtils.isEmpty(payload.words())) {
+                recordUsage(inputTokens, outputTokens, false);
+                return new SegmentationResult(List.of(), modelName, inputTokens, outputTokens);
+            }
+
+            List<TranslationWord> words = payload.words().stream()
+                    .filter(word -> !ObjectUtils.isEmpty(word.thaiText()))
+                    // 泰文欄位混進中文字代表模型翻一半停手，那種半成品會被使用者
+                    // 背起來，也會污染單字庫，所以整批丟掉而不是留一半。
+                    .filter(word -> !containsChinese(word.thaiText()))
+                    .map(word -> new TranslationWord(
+                            word.chineseText(), word.thaiText(), word.romanization()))
+                    .toList();
+
+            recordUsage(inputTokens, outputTokens, !words.isEmpty());
+
+            return new SegmentationResult(words, modelName, inputTokens, outputTokens);
+
+        } catch (Exception exception) {
+            recordUsage(0L, 0L, false);
+            log.error("segmentation call failed for thai text length {}", thaiText.length(), exception);
+            return new SegmentationResult(List.of(), modelName, 0L, 0L);
+        }
+    }
+
+    /**
+     * 一個詞的各種說法。使用者點了「多種說法」才會走到這裡。
+     *
+     * 失敗時同樣回空清單而不是拋例外，理由同 segment。
+     */
+    @Override
+    public VariantResult variants(String chineseText, String thaiText) {
+        try {
+            ResponseEntity<ChatResponse, VariantsPayload> response = chatClient.prompt()
+                    .system(VARIANT_PROMPT)
+                    .user("中文：" + chineseText + "\n泰文：" + thaiText)
+                    .call()
+                    .responseEntity(VariantsPayload.class);
+
+            VariantsPayload payload = response.entity();
+            Usage usage = usageOf(response.response());
+            long inputTokens = toTokenCount(Objects.isNull(usage) ? null : usage.getPromptTokens());
+            long outputTokens = toTokenCount(Objects.isNull(usage) ? null : usage.getCompletionTokens());
+
+            if (Objects.isNull(payload)) {
+                recordUsage(inputTokens, outputTokens, false);
+                return new VariantResult(List.of(), modelName, inputTokens, outputTokens);
+            }
+
+            List<TranslationVariant> variants = toVariants(payload.variants());
+
+            recordUsage(inputTokens, outputTokens, !variants.isEmpty());
+
+            return new VariantResult(variants, modelName, inputTokens, outputTokens);
+
+        } catch (Exception exception) {
+            recordUsage(0L, 0L, false);
+            log.error("variants call failed for thai text length {}", thaiText.length(), exception);
+            return new VariantResult(List.of(), modelName, 0L, 0L);
         }
     }
 
@@ -539,28 +618,12 @@ public class OpenAiTranslationClient implements TranslationClient {
      * 例如「ฉันอยาก吃ข้าว」。這種結果看起來很像成功，
      * 但存進去就會永久污染快取與單字庫，所以在這裡當掉。
      *
-     * ★ variants 是 2026-08-14 新開的路徑，一定要一起檢查 ——
-     *   漏掉的話，污染會從新路徑繞過這道防線。
+     * ★ 這道防線在三條路徑上都要有：整句翻譯、逐詞拆解、多種說法。
+     *   任何一條漏掉，污染就會從那裡繞進資料庫。
      */
-    private boolean containsChinese(TranslationPayload payload) {
-        if (CHINESE_PATTERN.matcher(payload.thaiText()).find()) {
-            return true;
-        }
-
-        boolean wordsContainChinese = payload.words().stream()
-                .anyMatch(word -> CHINESE_PATTERN.matcher(word.thaiText()).find());
-
-        if (wordsContainChinese) {
-            return true;
-        }
-
-        if (ObjectUtils.isEmpty(payload.variants())) {
-            return false;
-        }
-
-        return payload.variants().stream()
-                .filter(variant -> !ObjectUtils.isEmpty(variant.thaiText()))
-                .anyMatch(variant -> CHINESE_PATTERN.matcher(variant.thaiText()).find());
+    private boolean containsChinese(String thaiText) {
+        return !ObjectUtils.isEmpty(thaiText)
+                && CHINESE_PATTERN.matcher(thaiText).find();
     }
 
     /**
@@ -583,6 +646,15 @@ public class OpenAiTranslationClient implements TranslationClient {
                 // 殘缺的那一筆丟掉就好，不必整次翻譯失敗 ——
                 // 少一種說法不影響使用，但殘缺的資料存進去會一直錯下去。
                 log.warn("dropped an incomplete variant returned by the model");
+                continue;
+            }
+
+            if (containsChinese(payload.thaiText())) {
+                // 「ผ我ม」這種半成品會被沉澱進單字庫，然後被使用者背起來。
+                // ★ 這裡只丟那一筆，不像 translate 那樣整次失敗 ——
+                //   說法是點開才看的輔助資訊，少一筆不影響，
+                //   但如果整批擋掉，使用者會看到「各種說法載入失敗」卻不知道為什麼。
+                log.warn("dropped a variant whose thai text contains chinese characters");
                 continue;
             }
 
@@ -639,8 +711,6 @@ public class OpenAiTranslationClient implements TranslationClient {
             String chineseText,
             String thaiText,
             String romanization,
-            List<WordPayload> words,
-            List<VariantPayload> variants,
             /*
              * ★ 這裡是大寫的 Boolean，不是小寫的 boolean，這個差別很重要。
              *
@@ -654,6 +724,14 @@ public class OpenAiTranslationClient implements TranslationClient {
              *       false → 它明確說不行 → 才擋掉
              */
             Boolean translatable) {
+    }
+
+    /** 逐詞拆解那次呼叫的回傳格式。同樣必須是容器物件，不能是裸的陣列。 */
+    private record SegmentPayload(List<WordPayload> words) {
+    }
+
+    /** 多種說法那次呼叫的回傳格式。 */
+    private record VariantsPayload(List<VariantPayload> variants) {
     }
 
     private record WordPayload(
