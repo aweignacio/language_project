@@ -11,6 +11,32 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
 
+    hikari:
+      # ★ 一定要限制連線池大小，否則部署時會啟動失敗。
+      #
+      # Cloud SQL 的 db-f1-micro 只有 0.6 GB 記憶體，連線上限約 25 條
+      # （PostgreSQL 每條連線都要吃記憶體，所以上限跟規格綁在一起）。
+      #
+      # HikariCP 預設一個實例開 10 條。平常兩台 = 20 條還撐得住，
+      # 但部署時新舊版本會同時存在幾十秒，瞬間變成 3～4 台 = 30～40 條，
+      # 直接爆掉上限，新版本就會拿不到連線而啟動失敗：
+      #
+      #   FATAL: remaining connection slots are reserved for roles with
+      #          privileges of the "pg_use_reserved_connections" role
+      #   → Unable to determine Dialect without JDBC metadata
+      #   → BeanCreationException: entityManagerFactory
+      #
+      # （2026-08-16 實際踩到，症狀是容器起不來但舊版本仍在服務，
+      #   所以網站沒掛，只有部署失敗。）
+      #
+      # 限制成 5 之後：平常 2×5=10、部署重疊 4×5=20，都在 25 以內。
+      # 5 條對這個專案綽綽有餘 —— 每次查詢大部分時間都在等 OpenAI，
+      # 根本沒佔著資料庫連線。
+      #
+      # ★ 不要改成「提高資料庫的連線上限」。db-f1-micro 記憶體太小，
+      #   硬調高會讓資料庫自己先被壓垮，比現在更糟。
+      maximum-pool-size: 5
+
   ai:
     openai:
       api-key: ${OPENAI_API_KEY}
