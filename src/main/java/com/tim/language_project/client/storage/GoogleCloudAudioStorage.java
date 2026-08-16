@@ -79,8 +79,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.Resource;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -115,7 +115,7 @@ public class GoogleCloudAudioStorage implements AudioStorage {
     }
 
     @Override
-    public Optional<InputStream> openStream(String filePath) {
+    public Optional<Resource> load(String filePath) {
         try {
             Blob blob = storage.get(
                     BlobId.of(audioStorageProperties.getBucket(), filePath));
@@ -125,12 +125,17 @@ public class GoogleCloudAudioStorage implements AudioStorage {
             }
 
             // getContent 會把整個 blob 讀進記憶體。對這個專案是可接受的：
-            // 單一音檔最大不過幾百 KB，而 Cloud Storage 的串流讀取 API
-            // 需要額外處理 ReadChannel 的生命週期，複雜度不划算。
+            // 單一音檔最大不過幾百 KB。
+            //
+            // ★ 用 ByteArrayResource 而不是 InputStream，是為了讓 Spring
+            //   能處理 iOS 播放音訊時必送的 Range 請求 —— 它需要一個
+            //   「知道長度、可重複讀取」的資源才切得出部分內容。
+            //   （見 AudioStorage.load 的說明。）
             //
             // ★ 若日後音檔改成長篇朗讀（例如整段課文），這裡要改成
-            //   blob.reader() 的串流版本，否則同時多人播放會把記憶體吃光。
-            return Optional.of(new ByteArrayInputStream(blob.getContent()));
+            //   blob.reader() 搭配支援隨機存取的 Resource，否則同時多人播放
+            //   會把記憶體吃光。
+            return Optional.of(new ByteArrayResource(blob.getContent()));
         } catch (Exception exception) {
             log.error("音檔自 Cloud Storage 讀取失敗，路徑 {}", filePath, exception);
             return Optional.empty();

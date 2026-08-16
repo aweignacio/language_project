@@ -40,7 +40,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.io.InputStream;
+import org.springframework.core.io.PathResource;
+import org.springframework.core.io.Resource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -72,7 +73,7 @@ public class LocalDiskAudioStorage implements AudioStorage {
     }
 
     @Override
-    public Optional<InputStream> openStream(String filePath) {
+    public Optional<Resource> load(String filePath) {
         try {
             Path target = Paths.get(audioStorageProperties.getDirectory()).resolve(filePath);
 
@@ -80,7 +81,10 @@ public class LocalDiskAudioStorage implements AudioStorage {
                 return Optional.empty();
             }
 
-            return Optional.of(Files.newInputStream(target));
+            // PathResource 直接指向磁碟上的檔案：知道長度、可以隨機存取，
+            // 而且不會把內容載進記憶體。Spring 靠這兩個能力才處理得了
+            // iOS 播放音訊時必送的 Range 請求（見 AudioStorage.load 的說明）。
+            return Optional.of(new PathResource(target));
         } catch (Exception exception) {
             log.error("音檔讀取失敗，路徑 {}", filePath, exception);
             return Optional.empty();

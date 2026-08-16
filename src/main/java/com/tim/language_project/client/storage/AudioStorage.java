@@ -2,7 +2,7 @@ package com.tim.language_project.client.storage;
 
 import com.tim.language_project.enums.SpeechLanguageEnum;
 
-import java.io.InputStream;
+import org.springframework.core.io.Resource;
 import java.util.Optional;
 
 /**
@@ -32,15 +32,24 @@ public interface AudioStorage {
     Optional<String> save(SpeechLanguageEnum language, byte[] content, String extension);
 
     /**
-     * 開一條讀取串流。
+     * 取出一份音檔。
      *
-     * ★ 回傳 InputStream 而非 byte[] 是刻意的：
-     *   讀成 byte[] 會把整個檔案攤在記憶體裡，同時播放多個就會疊加。
-     *   串流的記憶體佔用固定於一個小緩衝區，與檔案大小、併發數無關。
-     *   呼叫端負責關閉這條串流。
+     * ★ 回傳 Resource 而不是 InputStream，這一點是被 iOS 逼出來的（2026-08-16）：
+     *
+     *   iOS Safari 播放音訊時，一定會先送一個「只要前面一小段」的請求
+     *   （HTTP Range）。伺服器若不理會、把整包丟回去，iOS 就拒絕播放，
+     *   而且不會有任何錯誤訊息 —— 手機上就是按了沒聲音，電腦上卻正常。
+     *
+     *   Spring 有能力自動處理 Range 並回 206，但前提是拿得到一個
+     *   「知道自己多長、而且可以重複讀取」的資源。InputStreamResource
+     *   兩者都做不到（長度未知、讀過就沒了），所以 Range 支援不起來。
+     *
+     *   ★ 原本選 InputStream 是為了「不要把整個檔案載進記憶體」。
+     *     那個顧慮在這個專案不成立 —— 音檔只有 20～80 KB，
+     *     而且雲端實作本來就是整包讀取。真正需要串流的是長篇影音，不是單字發音。
      *
      * @param filePath 相對路徑，格式同 save 的回傳值
      * @return 檔案不存在時回傳空值
      */
-    Optional<InputStream> openStream(String filePath);
+    Optional<Resource> load(String filePath);
 }

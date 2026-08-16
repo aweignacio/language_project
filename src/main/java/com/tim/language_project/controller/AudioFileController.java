@@ -30,18 +30,26 @@ package com.tim.language_project.controller;
  *      路徑固定是「語言/檔名」兩層沒錯，但用萬用字元接住整段，
  *      這一層就不需要知道路徑長什麼樣子 —— 那是 AudioStorage 的事。
  *
- *  第 3 步｜跟 AudioStorage 要一條讀取串流
+ *  第 3 步｜跟 AudioStorage 要那份音檔
  *
- *      本機 → 從 audio\th\a1b2c3d4e5f6.wav 開檔案串流
- *      雲端 → 從 Cloud Storage 開下載串流
+ *      本機 → PathResource，直接指向 audio\th\a1b2c3d4e5f6.wav
+ *      雲端 → ByteArrayResource，內容來自 Cloud Storage
  *
- *  第 4 步｜包成 InputStreamResource 回傳
+ *  第 4 步｜回傳 Resource，並附上 Accept-Ranges 標頭
  *
- *    ★ 這一步是記憶體安全的關鍵。
- *      如果改成 Files.readAllBytes 再回傳 byte[]，整個檔案會攤在記憶體裡，
- *      三個人同時播三個長句子就是三份疊加。
- *      InputStreamResource 是邊讀邊吐，記憶體只用一個小緩衝區，
- *      跟檔案多大、多少人同時聽都無關。
+ *    ★★ 這一步是「iPhone 到底有沒有聲音」的關鍵（2026-08-16 踩到）★★
+ *
+ *      iOS Safari 播放音訊時，一定會先送一個「只要前面一小段」的請求
+ *      （HTTP Range）。伺服器若不理會、把整包丟回去，iOS 就直接放棄播放，
+ *      而且不會有任何錯誤訊息 —— 手機按了沒聲音，電腦上卻一切正常。
+ *
+ *      切段的工作由 Spring 自動完成，但它需要一個「知道自己多長、
+ *      而且可以重複讀取」的 Resource 才辦得到。
+ *
+ *      ★ 原本這裡用 InputStreamResource，那個兩者都做不到
+ *        （長度未知、讀過就沒了），所以 Range 永遠支援不起來。
+ *        當初選它是為了「不要把整個檔案載進記憶體」，但那個顧慮
+ *        在這個專案不成立 —— 音檔只有 20～80 KB。
  *
  *  第 5 步｜檔案不存在時回 404
  *
@@ -55,7 +63,7 @@ import com.tim.language_project.client.storage.AudioStorage;
 import com.tim.language_project.enums.ErrorCodeEnum;
 import com.tim.language_project.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
-import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -64,8 +72,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.HandlerMapping;
 
 import jakarta.servlet.http.HttpServletRequest;
-
-import java.io.InputStream;
 
 @RestController
 @RequiredArgsConstructor
@@ -76,10 +82,10 @@ public class AudioFileController {
     private final AudioStorage audioStorage;
 
     @GetMapping("/audio/**")
-    public ResponseEntity<InputStreamResource> download(HttpServletRequest request) {
+    public ResponseEntity<Resource> download(HttpServletRequest request) {
         String filePath = extractFilePath(request);
 
-        InputStream stream = audioStorage.openStream(filePath)
+        Resource audio = audioStorage.load(filePath)
                 .orElseThrow(() -> new BusinessException(ErrorCodeEnum.AUDIO_FILE_NOT_FOUND));
 
         return ResponseEntity.ok()
@@ -89,7 +95,16 @@ public class AudioFileController {
                 // 音檔內容永遠不變（檔名是隨機碼，改內容就是新檔名），
                 // 所以讓瀏覽器盡量快取，重播同一個詞不必再下載一次。
                 .header(HttpHeaders.CACHE_CONTROL, "public, max-age=31536000, immutable")
-                .body(new InputStreamResource(stream));
+                // ★ 告訴瀏覽器「這個資源可以只要一部分」。
+                //   iOS Safari 播放音訊時一定會先送 Range 請求，
+                //   看不到這個標頭、或伺服器不回 206，它就直接放棄播放，
+                //   而且不會有任何錯誤訊息（電腦瀏覽器則寬容得多，照樣能播）。
+                //
+                //   實際的切段工作由 Spring 完成 —— 只要回傳的 Resource
+                //   知道自己多長且可重複讀取（PathResource / ByteArrayResource），
+                //   它會自動處理 Range 並回 206 Partial Content。
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                .body(audio);
     }
 
     /** 取出 /audio/ 之後的整段，例如 th/a1b2c3d4e5f6.wav。 */

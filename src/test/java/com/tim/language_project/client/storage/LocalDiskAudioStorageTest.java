@@ -62,10 +62,23 @@ class LocalDiskAudioStorageTest {
 
         assertThat(filePath).isPresent();
 
-        try (InputStream stream =
-                     localDiskAudioStorage.openStream(filePath.get()).orElseThrow()) {
-            assertThat(stream.readAllBytes()).isEqualTo(content);
-        }
+        assertThat(localDiskAudioStorage.load(filePath.get()).orElseThrow()
+                .getContentAsByteArray()).isEqualTo(content);
+    }
+
+    @Test
+    @DisplayName("★ 回傳的資源必須知道自己多長，否則 iPhone 播不出聲音")
+    void shouldReturnResourceThatKnowsItsLength() throws Exception {
+        byte[] content = {1, 2, 3, 4, 5, 6, 7};
+
+        Optional<String> filePath =
+                localDiskAudioStorage.save(SpeechLanguageEnum.TH, content, "wav");
+
+        // iOS Safari 播放音訊時必送 Range 請求。Spring 要能回 206，
+        // 前提是這個 Resource 報得出長度 —— InputStreamResource 報不出來，
+        // 所以 2026-08-16 之前手機一律沒聲音，而電腦上正常。
+        assertThat(localDiskAudioStorage.load(filePath.orElseThrow())
+                .orElseThrow().contentLength()).isEqualTo(content.length);
     }
 
     @Test
@@ -103,6 +116,6 @@ class LocalDiskAudioStorageTest {
     @Test
     @DisplayName("讀取不存在的檔案應回傳空值，而非拋出例外")
     void shouldReturnEmptyWhenFileMissing() {
-        assertThat(localDiskAudioStorage.openStream("th/notexist.wav")).isEmpty();
+        assertThat(localDiskAudioStorage.load("th/notexist.wav")).isEmpty();
     }
 }

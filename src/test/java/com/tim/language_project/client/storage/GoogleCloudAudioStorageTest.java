@@ -136,7 +136,7 @@ class GoogleCloudAudioStorageTest {
     void shouldReturnEmptyWhenBlobMissing() {
         when(storage.get(any(BlobId.class))).thenReturn(null);
 
-        assertThat(googleCloudAudioStorage.openStream("th/notexist.wav")).isEmpty();
+        assertThat(googleCloudAudioStorage.load("th/notexist.wav")).isEmpty();
     }
 
     @Test
@@ -147,7 +147,22 @@ class GoogleCloudAudioStorageTest {
         when(blob.getContent()).thenReturn(content);
         when(storage.get(any(BlobId.class))).thenReturn(blob);
 
-        assertThat(googleCloudAudioStorage.openStream("th/exists.wav").orElseThrow()
-                .readAllBytes()).isEqualTo(content);
+        assertThat(googleCloudAudioStorage.load("th/exists.wav").orElseThrow()
+                .getContentAsByteArray()).isEqualTo(content);
+    }
+
+    @Test
+    @DisplayName("★ 回傳的資源必須知道自己多長，否則 iPhone 播不出聲音")
+    void shouldReturnResourceThatKnowsItsLength() throws Exception {
+        byte[] content = {9, 8, 7, 6, 5};
+        Blob blob = mock(Blob.class);
+        when(blob.getContent()).thenReturn(content);
+        when(storage.get(any(BlobId.class))).thenReturn(blob);
+
+        // iOS Safari 播放音訊時必送 Range 請求。Spring 要能回 206，
+        // 前提是這個 Resource 報得出長度 —— InputStreamResource 報不出來，
+        // 所以 2026-08-16 之前手機一律沒聲音，而電腦上正常。
+        assertThat(googleCloudAudioStorage.load("th/exists.wav").orElseThrow()
+                .contentLength()).isEqualTo(content.length);
     }
 }
