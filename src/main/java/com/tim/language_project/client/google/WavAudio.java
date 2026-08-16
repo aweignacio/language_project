@@ -103,6 +103,15 @@ public final class WavAudio {
     /** 剪裁時前後各保留的餘裕，避免起頭聽起來像被切斷。 */
     private static final int MARGIN_MILLIS = 40;
 
+    /**
+     * 補在最前面的前導靜音長度。
+     *
+     * ★ 這是給 iOS 暖機用的，不是給人聽的 —— 詳見 withLeadIn 的說明。
+     *   調小的話 iPhone 上會開始漏掉第一個音，調大則每次播放前的空白變明顯。
+     *   150 毫秒是「iOS 來得及、耳朵察覺不到」的折衷。
+     */
+    private static final int LEAD_IN_MILLIS = 150;
+
     /** 正規化的目標峰值。刻意不到 1.0，留餘裕避免削頂破音。 */
     private static final double TARGET_PEAK = 0.90;
 
@@ -142,7 +151,39 @@ public final class WavAudio {
 
         normalise(trimmed);
 
-        return Optional.of(layout.rebuild(trimmed));
+        return Optional.of(layout.rebuild(withLeadIn(trimmed, layout)));
+    }
+
+    /**
+     * 在最前面補一段數位靜音。
+     *
+     * ★ 為什麼需要（2026-08-16 手機實測發現）：
+     *
+     *   iPhone 上聽起來第一個音節被吃掉，電腦上卻正常。
+     *   原因是 iOS 的音訊管線從「按下播放」到「真的發出聲音」有一段啟動延遲
+     *   （解碼、與系統音訊服務交握），通常 100～300 毫秒。
+     *   電腦瀏覽器會先緩衝較多才開始播，所以感覺不出來。
+     *
+     *   上面的 MARGIN_MILLIS 是「保留原本就有的留白，最多 40 毫秒」——
+     *   來源音檔前面留白不足時，實際保留的更少甚至是零，而且 40 毫秒
+     *   本來就不夠 iOS 暖機。
+     *
+     *   這裡改成「主動補上去」，不管 Google 回來的音檔長什麼樣，
+     *   都保證有一段夠長的前導靜音。
+     *
+     * ★ 代價是每個音檔多 150 毫秒。對單字與短句的發音範本無感，
+     *   換到的是「不會漏掉第一個音」，很划算。
+     */
+    private static short[] withLeadIn(short[] samples, WavLayout layout) {
+        int leadInSamples =
+                (int) (layout.sampleRate() / 1000.0 * LEAD_IN_MILLIS) * layout.channels();
+
+        short[] padded = new short[leadInSamples + samples.length];
+        // Java 的陣列預設就是 0，而 16 位元 PCM 的 0 正是「無聲」，
+        // 所以前面那段不必特別填值。
+        System.arraycopy(samples, 0, padded, leadInSamples, samples.length);
+
+        return padded;
     }
 
     /** 第一個「夠大聲」的取樣點，整段都是靜音時回傳 -1。 */

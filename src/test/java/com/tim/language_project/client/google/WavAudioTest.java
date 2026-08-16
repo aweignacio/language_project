@@ -72,9 +72,41 @@ class WavAudioTest {
 
         double seconds = durationSeconds(tidied.get());
 
-        // 我主張：長度剩下「聲音那 0.2 秒」再加上前後各留一點點餘裕，
+        // 我主張：長度剩下「聲音那 0.2 秒」＋ 前後各 40ms 餘裕 ＋ 前導靜音 150ms，
         // 不會是原本的 1.1 秒，也不會短到把聲音本身剪掉。
-        assertThat(seconds).isBetween(0.2, 0.4);
+        //
+        // ★ 上限從 0.4 放寬到 0.55，是因為 2026-08-16 加了 150ms 的前導靜音
+        //   （見 WavAudio.withLeadIn，那是為了 iOS 的音訊管線暖機）。
+        assertThat(seconds).isBetween(0.35, 0.55);
+    }
+
+    /*
+     * ═══ 測試：最前面必須有一段靜音 ═══════════════════════════════════════
+     *
+     * ★ 這一條守的是「iPhone 上聽得到第一個音節」。
+     *
+     *   iOS 的音訊管線從「按下播放」到「真的出聲」有 100～300ms 的啟動延遲。
+     *   音檔如果一開頭就是聲音，那段延遲會直接把第一個音節吃掉 ——
+     *   而且電腦瀏覽器完全正常，只有手機聽起來怪，很難聯想到原因。
+     *
+     *   所以 tidy 剪完靜音之後，會主動在最前面補回一段。
+     *   有人日後覺得「開頭那段空白是多餘的」而拿掉的話，這個測試會擋下來。
+     */
+    @Test
+    @DisplayName("★ 開頭必須留一段靜音，否則 iPhone 會吃掉第一個音節")
+    void shouldPrependLeadInSilence() {
+        // 一開頭就是聲音，完全沒有留白 —— 最嚴苛的情況
+        short[] samples = new short[(int) (SAMPLE_RATE * 0.3)];
+
+        for (int i = 0; i < samples.length; i++) {
+            samples[i] = (short) (i % 2 == 0 ? 8000 : -8000);
+        }
+
+        byte[] tidied = WavAudio.tidy(buildWav(samples)).orElseThrow();
+
+        assertThat(leadingSilenceSeconds(tidied))
+                .as("開頭的靜音長度")
+                .isGreaterThanOrEqualTo(0.10);
     }
 
     /*
@@ -178,6 +210,18 @@ class WavAudioTest {
     private double durationSeconds(byte[] wav) {
         int dataSize = ByteBuffer.wrap(wav, 40, 4).order(ByteOrder.LITTLE_ENDIAN).getInt();
         return (dataSize / 2.0) / SAMPLE_RATE;
+    }
+
+    /** 從結果的 WAV 算出「開頭有多少秒是完全無聲的」。 */
+    private double leadingSilenceSeconds(byte[] wav) {
+        ByteBuffer buffer = ByteBuffer.wrap(wav, 44, wav.length - 44).order(ByteOrder.LITTLE_ENDIAN);
+        int silentSamples = 0;
+
+        while (buffer.remaining() >= 2 && buffer.getShort() == 0) {
+            silentSamples++;
+        }
+
+        return silentSamples / (double) SAMPLE_RATE;
     }
 
     /** 從結果的 WAV 算出峰值佔滿刻度的比例。 */
