@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>ThaiLan · 登入</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0B100E">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600&family=Noto+Serif+Thai:wght@600&display=swap" rel="stylesheet">
+
+  <!--
+    這一頁是 Spring Security 的 formLogin 指定的登入畫面。
+
+    ★ 為什麼要自己做，而不用 Spring 內建的那頁：
+      內建的頁面是白底藍框的 Bootstrap 樣式，跟 App 內部的黑金配色完全對不起來，
+      而且加到手機主畫面之後，使用者第一眼看到的就是這一頁。
+
+    ★ 為什麼是一頁純 HTML，而不是做進 Angular：
+      登入發生在「還沒通過驗證」的時候，此時不應該把整包前端程式送出去。
+      而且表單要直接 POST 給 Spring Security 的 /login，走瀏覽器原生的送出，
+      不需要 JavaScript —— 少一層就少一個會壞的地方。
+
+    配色與字型取自 frontend/src/styles.css，與 App 內部同一套視覺語言。
+  -->
+  <style>
+    :root {
+      --ink-900: #0b100e;
+      --ink-800: #101815;
+      --ink-700: #16211d;
+      --gold-400: #e6c67e;
+      --gold-500: #c9a253;
+      --gold-600: #9a7b34;
+      --ivory: #f1e9da;
+      --ivory-dim: rgba(241, 233, 218, 0.62);
+      --danger: #e0796a;
+      --line: rgba(230, 198, 126, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      font-family: 'Noto Serif TC', serif;
+      color: var(--ivory);
+      background:
+        radial-gradient(1100px 620px at 88% -10%, rgba(201, 162, 83, 0.17), transparent 62%),
+        radial-gradient(900px 700px at -10% 108%, rgba(111, 184, 160, 0.10), transparent 60%),
+        var(--ink-900);
+    }
+
+    .card {
+      width: 100%;
+      max-width: 380px;
+      padding: 40px 32px 32px;
+      background: linear-gradient(160deg, rgba(241, 233, 218, 0.05), rgba(241, 233, 218, 0.015));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+    }
+
+    .brand { text-align: center; margin-bottom: 32px; }
+
+    .brand .glyph {
+      font-family: 'Noto Serif Thai', serif;
+      font-size: 56px;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-600));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .brand h1 {
+      margin: 12px 0 4px;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--gold-400);
+    }
+
+    .brand p { margin: 0; font-size: 13px; color: var(--ivory-dim); }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: var(--ivory-dim);
+      letter-spacing: 0.05em;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      margin-bottom: 18px;
+      font-family: inherit;
+      font-size: 16px; /* ★ 16px 以下，iOS 會在聚焦時自動放大畫面 */
+      color: var(--ivory);
+      background: rgba(11, 16, 14, 0.5);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    input:focus { border-color: rgba(230, 198, 126, 0.45); }
+
+    button {
+      width: 100%;
+      padding: 13px;
+      margin-top: 6px;
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--ink-900);
+      background: linear-gradient(135deg, var(--gold-400), var(--gold-600));
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    button:active { opacity: 0.85; }
+
+    .alert {
+      margin-bottom: 20px;
+      padding: 11px 14px;
+      font-size: 13px;
+      border-radius: 10px;
+      color: #f2c9c0;
+      background: rgba(224, 121, 106, 0.1);
+      border: 1px solid rgba(224, 121, 106, 0.45);
+    }
+
+    .alert.info {
+      color: var(--ivory-dim);
+      background: rgba(111, 184, 160, 0.07);
+      border-color: rgba(111, 184, 160, 0.35);
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <div class="glyph">ท</div>
+      <h1>ThaiLan</h1>
+      <p>中泰翻譯學習</p>
+    </div>
+
+    <!-- Spring Security 登入失敗會導回 /login.html?error，登出則是 ?logout -->
+    <div class="alert" id="error" hidden>帳號或密碼不正確</div>
+    <div class="alert info" id="logout" hidden>已登出</div>
+
+    <form method="post" action="login">
+      <label for="username">帳號</label>
+      <input type="text" id="username" name="username"
+             autocomplete="username" autocapitalize="none" autocorrect="off" required autofocus>
+
+      <label for="password">密碼</label>
+      <input type="password" id="password" name="password"
+             autocomplete="current-password" required>
+
+      <button type="submit">登入</button>
+    </form>
+  </main>
+
+  <script>
+    // 依網址參數決定要不要顯示提示。
+    // 用 JavaScript 而不是伺服器端樣板，是為了讓這一頁維持成純靜態檔案 ——
+    // 不需要 Thymeleaf，也就不必為了一頁登入畫面多裝一套樣板引擎。
+    const params = new URLSearchParams(location.search);
+    if (params.has('error')) document.getElementById('error').hidden = false;
+    if (params.has('logout')) document.getElementById('logout').hidden = false;
+  </script>
+</body>
+</html>

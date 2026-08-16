@@ -113,7 +113,10 @@ class SecurityConfigTest {
             //   使用者只會看到一片黑畫面。表單登入改成導向一個真的網頁就沒這問題。
             mockMvc.perform(get("/audio/th/any.wav"))
                     .andExpect(status().is3xxRedirection())
-                    .andExpect(redirectedUrl("/login"));
+                    // 導向的是自訂的 /login.html，不是 Spring 內建的 /login。
+                    // （/login 是表單真正送出的位址，由 Spring Security 攔截處理，
+                    //   不對應任何畫面，見 SecurityConfig.loginProcessingUrl。）
+                    .andExpect(redirectedUrl("/login.html"));
         }
 
         @Test

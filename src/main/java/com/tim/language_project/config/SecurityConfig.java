@@ -89,6 +89,13 @@ public class SecurityConfig {
     };
 
     /**
+     * 自訂的登入畫面（純靜態 HTML，位於 static/login.html）。
+     *
+     * ★ 這一頁本身必須免登入，否則會變成「要登入才看得到登入頁」的無限跳轉。
+     */
+    private static final String LOGIN_PAGE = "/login.html";
+
+    /**
      * 雲端：除了健康檢查與 PWA 中繼資料以外都要登入。
      *
      * ★ 2026-08-16 從 HTTP Basic 改成表單登入，原因是 Basic 在 iOS 的
@@ -113,11 +120,22 @@ public class SecurityConfig {
                         // Cloud Run 用來確認容器活著，不能要求登入。
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers(PWA_PUBLIC_RESOURCES).permitAll()
+                        .requestMatchers(LOGIN_PAGE).permitAll()
                         .anyRequest().authenticated())
-                // 不帶參數就是用 Spring Security 內建的登入頁，不需要自己做畫面。
-                // permitAll 是讓「還沒登入的人」看得到登入頁本身，否則會無限跳轉。
-                .formLogin(form -> form.permitAll())
-                .logout(logout -> logout.permitAll())
+                .formLogin(form -> form
+                        // 用自己的畫面取代 Spring 內建那頁白底藍框的 Bootstrap 樣式。
+                        // 加到手機主畫面之後，使用者第一眼看到的就是這一頁，
+                        // 跟 App 內部同一套黑金配色才不會像兩個產品。
+                        .loginPage(LOGIN_PAGE)
+                        // ★ 表單實際送到哪裡。這個網址是 Spring Security 攔截處理的，
+                        //   不對應任何 Controller —— 它自己驗帳密、自己建立 session。
+                        .loginProcessingUrl("/login")
+                        .defaultSuccessUrl("/", true)
+                        .failureUrl(LOGIN_PAGE + "?error")
+                        .permitAll())
+                .logout(logout -> logout
+                        .logoutSuccessUrl(LOGIN_PAGE + "?logout")
+                        .permitAll())
                 // 前端是純 API 呼叫、沒有傳統的表單送出，且 SameSite cookie 已擋掉
                 // 跨站帶 cookie 的情境，故關閉 CSRF。
                 // ★ 日後若加入「以 cookie 身分送出的表單」，這一行要拿掉重新評估。
