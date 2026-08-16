@@ -363,8 +363,14 @@ public class TranslationService {
      * ★ 只有一列的情況要當作「還沒問過」而不是「只有一種說法」。
      *   那一列通常是查整句時從逐詞沉澱下來的，本來就沒有其他說法可比。
      *
-     * ★ 整句沒有「另一種說法」這種東西，模型會回空的，這裡就回空的。
-     *   前端顯示「沒有其他說法」。
+     * ★ 整句沒有「另一種說法」這種東西（換個講法那叫翻譯），模型會回空的，
+     *   這裡就回空的，前端顯示「沒有其他說法」。
+     *
+     *   ★★ 但要知道「模型會回空的」這件事是「提示詞叫它這樣做」換來的，
+     *      不是這裡檢查出來的。下面那段寫入完全不會過問傳進去的是詞還是句子。
+     *      提示詞那條規則被拿掉的話，一整句話就會躺進單字庫，
+     *      而且畫面完全正常、測試也全過。詳見 OpenAiTranslationClient
+     *      的 VARIANT_PROMPT 上面那段。
      */
     public List<TranslationVariantDto> resolveVariants(Long queryId) {
         TranslationQueryDto query = translationQueryRepository.findDtoById(queryId)
