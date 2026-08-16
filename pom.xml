@@ -30,6 +30,7 @@
         <java.version>21</java.version>
         <spring-ai.version>2.0.0</spring-ai.version>
         <google-cloud-storage.version>2.69.0</google-cloud-storage.version>
+        <postgres-socket-factory.version>1.28.4</postgres-socket-factory.version>
     </properties>
     <dependencies>
         <dependency>
@@ -81,6 +82,28 @@
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloud-storage</artifactId>
             <version>${google-cloud-storage.version}</version>
+        </dependency>
+
+        <!--
+            Cloud Run 連 Cloud SQL 用的連線工廠。
+
+            ★ 為什麼不能像本機一樣直接用 IP 連：
+              Cloud Run 的對外 IP 是浮動的，要靠 IP 白名單的話只能開放 0.0.0.0/0，
+              那等於把資料庫暴露給全世界。這個函式庫改走 Google 內部的專用通道，
+              憑「執行身分」（服務帳號的 Cloud SQL 用戶端權限）認證，
+              資料庫完全不需要對外開放任何 IP。
+
+            連線字串因此長這樣（沒有主機位址，改用 cloudSqlInstance 指名）：
+              jdbc:postgresql:///language_project
+                  ?cloudSqlInstance=專案:區域:執行個體
+                  &socketFactory=com.google.cloud.sql.postgres.SocketFactory
+
+            ★ 本機完全用不到它，local profile 走的是一般的 localhost:5432。
+        -->
+        <dependency>
+            <groupId>com.google.cloud.sql</groupId>
+            <artifactId>postgres-socket-factory</artifactId>
+            <version>${postgres-socket-factory.version}</version>
         </dependency>
 
         <dependency>
