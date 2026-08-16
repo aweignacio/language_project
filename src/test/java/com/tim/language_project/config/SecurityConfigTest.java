@@ -21,10 +21,27 @@ package com.tim.language_project.config;
  *
  * ── 每個測試各自在防什麼 ────────────────────────────────────────────────
  *
- *  1. prod 未帶帳密 → 401     防止門沒關
- *  2. prod 帶對帳密 → 不是 401 確認擋人的規則沒有把自己人也擋掉
- *  3. prod 健康檢查 → 放行     Cloud Run 探測不到會一直重啟容器
- *  4. local 未帶帳密 → 不是 401 防止開發被干擾
+ *  1. prod 未登入   → 導向 /login   防止門沒關
+ *  2. prod 已登入   → 不被擋        確認擋人的規則沒有把自己人也擋掉
+ *  3. prod 健康檢查 → 放行          Cloud Run 探測不到會一直重啟容器
+ *  4. prod PWA 資源 → 放行          ★ 見下方
+ *  5. local 未登入  → 不被擋        防止開發被干擾
+ *
+ * ── ★ 第 1 項為什麼是 302 而不是 401（2026-08-16 的教訓）────────────────
+ *
+ *  原本用 HTTP Basic，未登入時回 401 並要瀏覽器自己彈出帳密對話框。
+ *  在一般瀏覽器沒問題，但 iOS「加入主畫面」後的 standalone 全螢幕模式
+ *  沒有網址列，也沒有地方彈那個框 —— App 一開就是一片黑，無法操作，
+ *  而且不會有任何錯誤訊息。
+ *
+ *  改成表單登入後，未登入是導向一個真的網頁，standalone 下就是普通的
+ *  頁面跳轉，完全正常。所以這裡斷言 302 正是在守住這個修正。
+ *
+ * ── ★ 第 4 項在防什麼 ──────────────────────────────────────────────────
+ *
+ *  iOS 抓 apple-touch-icon 與 manifest 時是「獨立的、不帶登入狀態的請求」。
+ *  被導向登入頁的話，iOS 拿到一頁 HTML 而不是圖片，於是自己用 App 名稱的
+ *  第一個字母生一張圖 —— 桌面會出現黑底白色「T」，而不是我們設計的圖示。
  * ══════════════════════════════════════════════════════════════════════════
  */
 
@@ -47,8 +64,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class SecurityConfigTest {
 
@@ -86,22 +105,26 @@ class SecurityConfigTest {
         private AudioStorage audioStorage;
 
         @Test
-        @DisplayName("沒帶帳號密碼應回 401")
-        void shouldRejectAnonymousRequest() throws Exception {
-            int status = mockMvc.perform(get("/audio/th/any.wav"))
-                    .andReturn().getResponse().getStatus();
-
-            assertThat(status).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        @DisplayName("沒登入應導向登入頁，而不是回 401")
+        void shouldRedirectAnonymousRequestToLoginPage() throws Exception {
+            // ★ 這裡斷言的是 302 而不是 401，而那正是這次改動的重點：
+            //   HTTP Basic 回 401 並要求瀏覽器自己彈出帳密對話框，
+            //   但 iOS 加到主畫面後的 standalone 模式沒有網址列、彈不出那個框，
+            //   使用者只會看到一片黑畫面。表單登入改成導向一個真的網頁就沒這問題。
+            mockMvc.perform(get("/audio/th/any.wav"))
+                    .andExpect(status().is3xxRedirection())
+                    .andExpect(redirectedUrl("/login"));
         }
 
         @Test
-        @DisplayName("帶對帳號密碼就不該被擋在門外")
-        void shouldAcceptCorrectCredentials() throws Exception {
+        @DisplayName("登入之後就不該被擋在門外")
+        void shouldAcceptAuthenticatedUser() throws Exception {
             int status = mockMvc.perform(get("/audio/th/any.wav")
-                            .with(httpBasic("awei", "local-only")))
+                            .with(user("awei").roles("USER")))
                     .andReturn().getResponse().getStatus();
 
             assertThat(status).isNotEqualTo(HttpStatus.UNAUTHORIZED.value());
+            assertThat(status).isNotEqualTo(HttpStatus.FOUND.value());
         }
 
         @Test
@@ -110,7 +133,26 @@ class SecurityConfigTest {
             int status = mockMvc.perform(get("/actuator/health"))
                     .andReturn().getResponse().getStatus();
 
+            assertThat(status).isNotEqualTo(HttpStatus.FOUND.value());
             assertThat(status).isNotEqualTo(HttpStatus.UNAUTHORIZED.value());
+        }
+
+        @Test
+        @DisplayName("★ PWA 中繼資料必須免登入，否則 iOS 桌面圖示會變成系統產生的字母圖")
+        void shouldAllowPwaMetadataWithoutLogin() throws Exception {
+            // iOS 抓 apple-touch-icon 與 manifest 時是獨立請求、不帶登入狀態。
+            // 被導向登入頁的話，iOS 拿到的是一頁 HTML 而不是圖片，
+            // 於是它自己用 App 名稱的第一個字母生一張圖（黑底白色 T）。
+            for (String path : new String[]{
+                    "/manifest.webmanifest", "/icons/icon-192x192.png", "/favicon.ico"}) {
+
+                int status = mockMvc.perform(get(path))
+                        .andReturn().getResponse().getStatus();
+
+                assertThat(status)
+                        .as("PWA 資源 %s 不可被導向登入頁", path)
+                        .isNotEqualTo(HttpStatus.FOUND.value());
+            }
         }
     }
 

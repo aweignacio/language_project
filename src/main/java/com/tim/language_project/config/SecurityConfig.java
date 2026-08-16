@@ -70,7 +70,40 @@ public class SecurityConfig {
     }
 
     /**
-     * 雲端：除了健康檢查以外都要登入。
+     * PWA 的中繼資料。★ 這些必須公開，不可要求登入。
+     *
+     * iOS 在「加入主畫面」時，是用一個「獨立的、不帶登入狀態的請求」去抓
+     * apple-touch-icon 和 manifest。被 401 擋掉的話，iOS 不會報錯，
+     * 而是自己用 App 名稱的第一個字母產生一張圖 —— 桌面就會出現
+     * 一個黑底白色「T」，而不是我們設計的圖示。
+     *
+     * 這幾個檔案沒有任何敏感資訊（就是圖片，加上一個寫著 App 叫什麼名字的 JSON），
+     * 公開它們不會讓任何人多知道什麼，也碰不到會花錢的 /api 與 /audio。
+     */
+    private static final String[] PWA_PUBLIC_RESOURCES = {
+            "/manifest.webmanifest",
+            "/icons/**",
+            "/favicon.ico",
+            "/ngsw-worker.js",
+            "/ngsw.json"
+    };
+
+    /**
+     * 雲端：除了健康檢查與 PWA 中繼資料以外都要登入。
+     *
+     * ★ 2026-08-16 從 HTTP Basic 改成表單登入，原因是 Basic 在 iOS 的
+     *   standalone（加到主畫面後的全螢幕模式）下根本不能用：
+     *
+     *     standalone 沒有網址列，也沒有地方彈出瀏覽器的原生帳密對話框。
+     *     App 一啟動就收到 401，卻無從輸入帳密 —— 使用者看到的是一片黑畫面，
+     *     完全無法操作，而且沒有任何錯誤訊息可循。
+     *
+     *   表單登入是「一個真的網頁」，standalone 下就是普通的頁面跳轉，
+     *   登入後狀態存在 session cookie 裡，後續請求自動帶著走。
+     *
+     *   （當初選 Basic 的理由是「零前端工作」，那個判斷本身沒錯 ——
+     *     Spring Security 的表單登入同樣有內建頁面，一樣不用寫前端，
+     *     而且它在 PWA 下能用。）
      */
     @Bean
     @Profile("prod")
@@ -79,11 +112,15 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Cloud Run 用來確認容器活著，不能要求登入。
                         .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers(PWA_PUBLIC_RESOURCES).permitAll()
                         .anyRequest().authenticated())
-                .httpBasic(basic -> {
-                })
-                // 這個站沒有「以他人身分送出表單」的攻擊面（沒有 cookie 型的登入狀態，
-                // 每個請求各自帶 Basic 認證），且前端是純 API 呼叫，故關閉 CSRF。
+                // 不帶參數就是用 Spring Security 內建的登入頁，不需要自己做畫面。
+                // permitAll 是讓「還沒登入的人」看得到登入頁本身，否則會無限跳轉。
+                .formLogin(form -> form.permitAll())
+                .logout(logout -> logout.permitAll())
+                // 前端是純 API 呼叫、沒有傳統的表單送出，且 SameSite cookie 已擋掉
+                // 跨站帶 cookie 的情境，故關閉 CSRF。
+                // ★ 日後若加入「以 cookie 身分送出的表單」，這一行要拿掉重新評估。
                 .csrf(csrf -> csrf.disable())
                 .build();
     }
