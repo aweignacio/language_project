@@ -58,6 +58,15 @@ app:
     username: ${APP_USERNAME}
     password: ${APP_PASSWORD}
 
+    # 簽章「7 天免登入」那張長效 cookie 用的金鑰。
+    #
+    # ★ 這個值一旦改變，所有人的長效 cookie 立刻失效（都要重新登入），
+    #   所以它必須跨部署維持不變 —— 在 Cloud Run 設定一次就不要再動。
+    #
+    # ★ 也不可以寫死在這個檔案裡：它會進版控，而版控是公開的。
+    #   金鑰外流等於任何人都能偽造一張「我是 awei」的 cookie 直接進來。
+    remember-me-key: ${APP_REMEMBER_ME_KEY}
+
 # Cloud Run 需要一個健康檢查端點確認容器活著。
 management:
   endpoints:

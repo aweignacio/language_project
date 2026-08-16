@@ -141,6 +141,20 @@ class SecurityConfigTest {
         }
 
         @Test
+        @DisplayName("★ /api 未登入應回 401 而不是導向登入頁，否則前端會誤判成連不上伺服器")
+        void shouldReturnUnauthorizedForApiInsteadOfRedirect() throws Exception {
+            // 登入狀態過期時，若回 302 導向登入頁，瀏覽器會自動跟隨，
+            // Angular 收到的是一頁 HTML 而不是預期的 JSON —— 它看不懂，
+            // 只好顯示最籠統的「無法連線到伺服器」，讓人以為後端掛了。
+            //
+            // 回 401 前端才分辨得出「要重新登入」與「真的連不上」。
+            int status = mockMvc.perform(get("/api/v1/vocabularies"))
+                    .andReturn().getResponse().getStatus();
+
+            assertThat(status).isEqualTo(HttpStatus.UNAUTHORIZED.value());
+        }
+
+        @Test
         @DisplayName("★ PWA 中繼資料必須免登入，否則 iOS 桌面圖示會變成系統產生的字母圖")
         void shouldAllowPwaMetadataWithoutLogin() throws Exception {
             // iOS 抓 apple-touch-icon 與 manifest 時是獨立請求、不帶登入狀態。
