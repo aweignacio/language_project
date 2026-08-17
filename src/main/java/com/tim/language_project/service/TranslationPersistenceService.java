@@ -176,6 +176,8 @@ public class TranslationPersistenceService {
         query.setChineseText(result.chineseText());
         query.setThaiText(result.thaiText());
         query.setRomanization(result.romanization());
+        // 模型沒給的話這裡是 null，代表「不知道是詞還是句子」，前端會照常顯示按鈕。
+        query.setIsWord(result.isWord());
 
         // saveAndFlush 是為了立刻拿到資料庫產生的 id，下一步當外鍵用。
         return translationQueryRepository.saveAndFlush(query).getId();

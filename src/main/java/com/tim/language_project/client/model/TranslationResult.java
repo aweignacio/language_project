@@ -27,7 +27,17 @@ public record TranslationResult(
         String modelName,
         long inputTokens,
         long outputTokens,
-        boolean translatable) {
+        boolean translatable,
+        /*
+         * 使用者輸入的是「一個詞」還是「一句話」，由模型判斷。
+         *
+         * 只用來決定畫面上「各種說法」那顆按鈕要不要出現 ——
+         * 句子沒有別種說法，讓人按一顆註定沒東西的按鈕沒有意義。
+         *
+         * ★ 是大寫 Boolean，容得下 null（代表「模型沒說」）。
+         *   null 時按鈕照常顯示，理由見 OpenAiTranslationClient 的 TranslationPayload。
+         */
+        Boolean isWord) {
 
     /**
      * 「這段輸入根本翻不出來」的結果，例如亂碼、無意義的字。
@@ -38,6 +48,6 @@ public record TranslationResult(
                                                    long inputTokens,
                                                    long outputTokens) {
         return new TranslationResult(null, null, null,
-                modelName, inputTokens, outputTokens, false);
+                modelName, inputTokens, outputTokens, false, null);
     }
 }

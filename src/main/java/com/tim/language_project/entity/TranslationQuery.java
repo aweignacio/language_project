@@ -55,6 +55,18 @@ public class TranslationQuery {
     @Column(name = "romanization", length = 500, nullable = false)
     private String romanization;
 
+    /**
+     * 這筆查的是「一個詞」還是「一句話」，由模型在翻譯那一次順便判斷。
+     * 前端拿它決定「各種說法」那顆按鈕要不要出現。
+     *
+     * ★ 允許 null，而且 null 有意義：
+     *   一是模型沒給這個欄位，二是這一列比這個欄位還早存進來（2026-08-17 之前的舊資料）。
+     *   兩種情況都當作「不知道」，按鈕照常顯示 —— 藏錯了使用者不會發現，
+     *   多顯示一顆只是白按一下。
+     */
+    @Column(name = "is_word")
+    private Boolean isWord;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 

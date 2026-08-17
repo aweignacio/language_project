@@ -173,15 +173,32 @@
         現在各自一顆按鈕，點了才去要。
       -->
       <div class="expanders">
-        <button
-          class="expander"
-          type="button"
-          [class.expander--open]="variantsExpanded()"
-          [disabled]="variantsLoading()"
-          (click)="loadVariants()">
-          {{ variantsLoading() ? '載入中…'
-           : variantsExpanded() ? '▾ 各種說法' : '▸ 各種說法' }}
-        </button>
+        <!--
+          ★ 查句子時不顯示這顆（2026-08-17）。
+
+          「各種說法」講的是同一個詞的不同講法（กาแฟ 還可以說 โกปี๊），
+          整句話沒有這種東西 —— 換個講法那叫翻譯，不叫說法。
+          所以查句子時按下去一定是空的，讓人按一顆註定沒東西的按鈕沒有意義。
+
+          isWord 由後端在翻譯那一次順便問模型得到，不另外花一次呼叫。
+
+          ★ 這裡一定要用 !== false，不可以寫成 === true。
+            isWord 有三種值：true（詞）、false（句子）、null（不知道）。
+            null 出現在模型沒給、或這筆快取比這個欄位還早存進來的時候。
+            寫成 === true 的話，所有舊資料的按鈕會集體消失，
+            而且畫面看起來完全正常，你不會發現自己少了什麼。
+        -->
+        @if (translation.isWord !== false) {
+          <button
+            class="expander"
+            type="button"
+            [class.expander--open]="variantsExpanded()"
+            [disabled]="variantsLoading()"
+            (click)="loadVariants()">
+            {{ variantsLoading() ? '載入中…'
+             : variantsExpanded() ? '▾ 各種說法' : '▸ 各種說法' }}
+          </button>
+        }
 
         <button
           class="expander"

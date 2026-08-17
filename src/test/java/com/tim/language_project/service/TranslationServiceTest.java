@@ -140,7 +140,7 @@ class TranslationServiceTest {
                 "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp")));
+                        "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp", false)));
         when(audioAssetService.findExistingAudioUrl(anyString(), any()))
                 .thenReturn(Optional.of("/audio/th/a3f9c2.mp3"));
 
@@ -154,6 +154,52 @@ class TranslationServiceTest {
         // ★ 這兩行是這個測試的重點：一毛錢都不能花
         verify(translationClient, never()).translate(anyString(), any(), any());
         verify(audioAssetService, never()).resolveAudioUrl(anyString(), any());
+    }
+
+    /*
+     * ═══ 測試一之一：isWord 要一路傳到前端，兩條路徑都要 ═════════════════
+     *
+     * isWord 是「使用者查的是一個詞，還是一句話」，由模型在翻譯那一次順便判斷。
+     * 前端只拿它做一件事：決定「各種說法」那顆按鈕要不要出現。
+     *
+     * ★ 為什麼「快取那條路」要單獨釘一個測試：
+     *
+     *   這個值在快取命中時不是重算的，是從資料庫那一列讀出來的 ——
+     *   意思是 JPQL 的建構子表達式、TranslationQueryDto、buildCachedResponse
+     *   這三個地方任何一個漏掉這一欄，值就會變成 null。
+     *
+     *   而 null 在前端是「不知道」，按鈕照常顯示。所以漏掉的症狀是：
+     *       第一次查「我想喝酒」→ 沒有各種說法按鈕（對）
+     *       第二次查「我想喝酒」→ 按鈕又冒出來了（錯）
+     *   同一句話兩次查詢長得不一樣，而且不會有任何錯誤訊息。
+     */
+    @Test
+    @DisplayName("isWord 在新查詢與快取命中時都要回傳")
+    void shouldCarryIsWordOnBothPaths() {
+        // ── 新查詢：模型說「水」是一個詞 ──
+        when(translationQueryRepository.findByKey(
+                "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(Optional.empty());
+        when(translationClient.translate(
+                "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(singleWordResult());
+        when(audioAssetService.resolveAudioUrl(anyString(), any()))
+                .thenReturn(Optional.of("/audio/th/xyz.mp3"));
+        when(translationPersistenceService.persist(any(), any(), any(), any()))
+                .thenReturn(88L);
+
+        assertThat(translationService.translate("水", SpeakerGenderEnum.MALE).isWord())
+                .isTrue();
+
+        // ── 快取命中：同一個判斷要從資料庫那一列讀回來 ──
+        when(translationQueryRepository.findByKey(
+                "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                        "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp", false)));
+
+        assertThat(translationService.translate("我想喝酒", SpeakerGenderEnum.MALE).isWord())
+                .isFalse();
     }
 
     /*
@@ -177,7 +223,7 @@ class TranslationServiceTest {
         when(translationQueryRepository.findDtoById(1L))
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo")));
+                        "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo", false)));
 
         // ★ Repository 回來的逐詞資料，音檔欄位本來就是 null
         when(translationSegmentRepository.findByThaiTextOrderBySeqNo("ผมอยากดื่มเหล้า"))
@@ -214,7 +260,7 @@ class TranslationServiceTest {
         when(translationQueryRepository.findDtoById(1L))
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "我想喝酒", "ผมอยาก", "pǒm yàak")));
+                        "我想喝酒", "ผมอยาก", "pǒm yàak", false)));
         when(translationSegmentRepository.findByThaiTextOrderBySeqNo("ผมอยาก"))
                 .thenReturn(List.of());
         when(translationClient.segment("我想喝酒", "ผมอยาก"))
@@ -252,7 +298,7 @@ class TranslationServiceTest {
         when(translationQueryRepository.findDtoById(9L))
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         9L, "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "我", "ผม", "pǒm")));
+                        "我", "ผม", "pǒm", true)));
         when(vocabularyRepository.findByChineseText("我"))
                 .thenReturn(List.of(
                         new VocabularyDto(7L, "我", "ผม", "pǒm",
@@ -277,7 +323,7 @@ class TranslationServiceTest {
         when(translationQueryRepository.findDtoById(9L))
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         9L, "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "我", "ผม", "pǒm")));
+                        "我", "ผม", "pǒm", true)));
         // 單字庫只有一列 → 當作「還沒問過」
         when(vocabularyRepository.findByChineseText("我"))
                 .thenReturn(List.of(new VocabularyDto(
@@ -315,7 +361,7 @@ class TranslationServiceTest {
                 "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm")));
+                        "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm", false)));
         TranslationResponseDto response =
                 translationService.translate("  我想喝酒  ", SpeakerGenderEnum.MALE);
 
@@ -434,7 +480,7 @@ class TranslationServiceTest {
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         88L, "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "水", "น้ำ", "náam")));
+                        "水", "น้ำ", "náam", true)));
         when(translationClient.translate(
                 "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
                 .thenReturn(singleWordResult());
@@ -509,7 +555,7 @@ class TranslationServiceTest {
                 .thenReturn(Optional.of(new TranslationQueryDto(
                         1L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH,
                         SpeakerGenderEnum.FEMALE, "我想喝酒",
-                        "ฉันอยากดื่มเหล้าค่ะ", "chǎn yàak dùuem lâo khâ")));
+                        "ฉันอยากดื่มเหล้าค่ะ", "chǎn yàak dùuem lâo khâ", false)));
         when(audioAssetService.findExistingAudioUrl(anyString(), any()))
                 .thenReturn(Optional.of("/audio/th/a1b2c3.mp3"));
 
@@ -625,20 +671,20 @@ class TranslationServiceTest {
     private TranslationResult singleWordResult() {
         return new TranslationResult(
                 "水", "น้ำ", "náam",
-                "gpt-test", 10L, 5L, true);
+                "gpt-test", 10L, 5L, true, true);
     }
 
     /** 「我」的翻譯結果。 */
     private TranslationResult singleWordResultWithVariants() {
         return new TranslationResult(
                 "我", "ผม", "pǒm",
-                "gpt-test", 100L, 50L, true);
+                "gpt-test", 100L, 50L, true, true);
     }
 
     /** 泰翻中的結果：chineseText 是翻出來的，thaiText 是使用者的輸入。 */
     private TranslationResult thaiToChineseResult() {
         return new TranslationResult(
                 "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo",
-                "gpt-test", 80L, 40L, true);
+                "gpt-test", 80L, 40L, true, false);
     }
 }

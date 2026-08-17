@@ -68,6 +68,17 @@ export interface TranslationResponse {
   chineseAudioUrl: string | null;
   /** true 代表這次讀快取、沒有呼叫 OpenAI，也就是沒有花錢。 */
   fromCache: boolean;
+  /**
+   * 這次查的是「一個詞」還是「一句話」，由後端問模型得到。
+   * 只用來決定「各種說法」那顆按鈕要不要出現。
+   *
+   * ★ null 代表「不知道」——模型沒給，或這筆快取比這個欄位還早存進來
+   *   （2026-08-17 之前）。這時按鈕照常顯示。
+   *
+   * ★ 判斷一律用「!== false」，不要用「=== true」：
+   *   用 === true 的話，所有舊資料的按鈕都會消失。
+   */
+  isWord: boolean | null;
 }
 
 /** 對應後端 AudioResponseDto。 */

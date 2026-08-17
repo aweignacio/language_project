@@ -301,7 +301,7 @@ public class TranslationService {
         return new TranslationResponseDto(
                 queryId, sourceText, direction, effectiveGender,
                 result.chineseText(), result.thaiText(), result.romanization(),
-                thaiAudioUrl, chineseAudioUrl, false);
+                thaiAudioUrl, chineseAudioUrl, false, result.isWord());
     }
 
     /**
@@ -482,7 +482,7 @@ public class TranslationService {
         return new TranslationResponseDto(
                 cached.id(), cached.sourceText(), cached.direction(), cached.gender(),
                 cached.chineseText(), cached.thaiText(), cached.romanization(),
-                thaiAudioUrl, chineseAudioUrl, true);
+                thaiAudioUrl, chineseAudioUrl, true, cached.isWord());
     }
 
     /**

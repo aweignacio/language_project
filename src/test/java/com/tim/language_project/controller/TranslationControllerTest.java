@@ -132,7 +132,7 @@ class TranslationControllerTest {
                         137L,
                         "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
                         "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp",
-                        "/audio/th/a3f9c2.mp3", null, true));
+                        "/audio/th/a3f9c2.mp3", null, true, false));
 
         mockMvc.perform(postTranslation("我想喝酒", "MALE"))
                 // 快取命中 → 沒有產生新東西 → 200
@@ -149,7 +149,13 @@ class TranslationControllerTest {
                 // ★ 我主張：queryId 有跟著出去。
                 //   前端點「逐詞拆解」和「各種說法」時就是拿它打回來的，
                 //   漏掉的話那兩顆按鈕永遠按不動，而且畫面上看不出任何異狀。
-                .andExpect(jsonPath("$.queryId").value(137));
+                .andExpect(jsonPath("$.queryId").value(137))
+                // ★ 我主張：isWord 有跟著出去，而且「我想喝酒」是句子所以是 false。
+                //   前端拿它決定「各種說法」那顆按鈕要不要出現 ——
+                //   漏掉這個欄位的話前端會讀到 undefined，
+                //   undefined !== false 成立，於是句子照樣長出那顆按鈕，
+                //   按下去永遠是空的。畫面不會報錯，只會白按。
+                .andExpect(jsonPath("$.isWord").value(false));
     }
 
     /*
@@ -168,7 +174,7 @@ class TranslationControllerTest {
                 .thenReturn(new TranslationResponseDto(
                         138L,
                         "水", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
-                        "水", "น้ำ", "náam", null, null, false));
+                        "水", "น้ำ", "náam", null, null, false, true));
 
         mockMvc.perform(postTranslation("水", "MALE"))
                 .andExpect(status().isCreated())
@@ -215,7 +221,7 @@ class TranslationControllerTest {
                 .thenReturn(new TranslationResponseDto(
                         139L,
                         "我", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.FEMALE,
-                        "我", "ฉัน", "chǎn", null, null, false));
+                        "我", "ฉัน", "chǎn", null, null, false, true));
 
         mockMvc.perform(postTranslation("我", "FEMALE"))
                 .andExpect(status().isCreated());

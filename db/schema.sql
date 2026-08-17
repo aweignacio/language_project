@@ -76,6 +76,24 @@ CREATE TABLE IF NOT EXISTS translation_query
     -- 泰文的羅馬拼音（含聲調符號，如 chǎn、dùuem）
     romanization  VARCHAR(500)  NOT NULL,
 
+    /*
+     * 這筆查的是「一個詞」還是「一句話」，由 AI 在翻譯那一次順便判斷。
+     * 前端拿它決定「各種說法」那顆按鈕要不要出現 ——
+     * 句子沒有別種說法（見 OpenAiTranslationClient 的 VARIANT_PROMPT），
+     * 讓使用者按一顆註定沒東西的按鈕沒有意義。
+     *
+     * ★ 刻意允許 NULL，而且 NULL 是有意義的第三種值：
+     *     TRUE  → 是詞，顯示按鈕
+     *     FALSE → 是句子，不顯示按鈕
+     *     NULL  → 不知道（模型沒給，或這一列比這個欄位還早存進來），
+     *             按鈕照常顯示
+     *
+     * ★ 所以這個欄位「不要」補 NOT NULL 或 DEFAULT。
+     *   補了 DEFAULT FALSE 的話，2026-08-17 以前的舊資料會全部變成
+     *   「是句子」，那些詞的各種說法按鈕會集體消失，而且不會有錯誤訊息。
+     */
+    is_word       BOOLEAN,
+
     created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -122,6 +140,20 @@ CREATE TABLE IF NOT EXISTS translation_query
  */
 CREATE INDEX IF NOT EXISTS ix_translation_query_thai_text
     ON translation_query (thai_text);
+
+/*
+ * ★ 補欄位給「已經存在」的資料庫（2026-08-17）。
+ *
+ * 上面那段 CREATE TABLE 寫的是 IF NOT EXISTS，所以在早就建好表的環境
+ * （你的本機、正式的 Cloud SQL）它整段會被跳過 —— 新加的 is_word
+ * 永遠不會出現。程式一啟動就會在寫入時炸掉，說找不到這個欄位。
+ *
+ * ADD COLUMN IF NOT EXISTS 讓這一行在兩種環境都安全：
+ *   新資料庫 → 上面已經建好了，這行什麼也不做
+ *   舊資料庫 → 這行把欄位補上，既有資料保持 NULL（代表「不知道」）
+ */
+ALTER TABLE translation_query
+    ADD COLUMN IF NOT EXISTS is_word BOOLEAN;
 
 /* ============================================================
  * 2. translation_segment —— 逐詞拆解結果

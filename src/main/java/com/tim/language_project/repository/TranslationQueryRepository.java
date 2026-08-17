@@ -29,7 +29,8 @@ public interface TranslationQueryRepository extends JpaRepository<TranslationQue
                 translationQuery.gender,
                 translationQuery.chineseText,
                 translationQuery.thaiText,
-                translationQuery.romanization
+                translationQuery.romanization,
+                translationQuery.isWord
             )
 
             FROM TranslationQuery translationQuery
@@ -57,7 +58,8 @@ public interface TranslationQueryRepository extends JpaRepository<TranslationQue
                 translationQuery.gender,
                 translationQuery.chineseText,
                 translationQuery.thaiText,
-                translationQuery.romanization
+                translationQuery.romanization,
+                translationQuery.isWord
             )
 
             FROM TranslationQuery translationQuery

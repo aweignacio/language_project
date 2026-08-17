@@ -267,6 +267,26 @@ public class OpenAiTranslationClient implements TranslationClient {
             1. chineseText：原封不動的輸入內容
             2. thaiText：整段對應的泰文
             3. romanization：「thaiText」的羅馬拼音，需標註聲調符號（例如 chǎn、dùuem、lâo）
+            4. isWord：使用者給的中文是「單一個詞」還是「一整句話」
+
+            ★ isWord 怎麼判斷：
+
+              是詞 → true。指的是可以單獨查字典的那種東西：
+                  咖啡、計程車、便利商店、泰式奶茶、機場、明天、謝謝
+                  （注意「便利商店」有四個字，但它是一個詞）
+
+              是句子 → false。有主詞、動作或語氣，是在講一件事：
+                  我想喝酒、這個多少錢、我迷路了、不要辣、機場怎麼走
+                  （注意「不要辣」只有三個字，但它是一句話）
+
+            ★ 不要用字數判斷，字數分不開這兩種：
+                  便利商店（4 個字）→ true
+                  我想喝酒（4 個字）→ false
+
+            ★ 這個欄位決定畫面上「各種說法」那顆按鈕要不要出現。
+              判成 true 卻其實是句子 → 使用者按下去看到空的，只是白按一下。
+              判成 false 卻其實是詞 → 按鈕消失，他永遠查不到那個詞的各種說法，
+              而且完全不會知道自己漏掉了什麼。★ 不確定的時候請給 true。
 
             ★ 不需要逐詞拆解。那是另一次呼叫的工作（見 SEGMENT_PROMPT），
               使用者點了「逐詞拆解」才會跑。這裡請專心把整句翻好就好，
@@ -318,6 +338,19 @@ public class OpenAiTranslationClient implements TranslationClient {
             1. thaiText：原封不動的輸入內容
             2. chineseText：整句翻成自然的繁體中文
             3. romanization：「thaiText」的羅馬拼音，需標註聲調符號
+            4. isWord：使用者給的泰文是「單一個詞」還是「一整句話」
+
+            ★ isWord 怎麼判斷：
+
+              是詞 → true。可以單獨查字典的那種：
+                  กาแฟ（咖啡）、สนามบิน（機場）、ขอบคุณ（謝謝）
+
+              是句子 → false。有主詞、動作或語氣，是在講一件事：
+                  ผมอยากดื่มเหล้า（我想喝酒）、นี่เท่าไหร่（這個多少錢）
+
+            ★ 這個欄位決定畫面上「各種說法」那顆按鈕要不要出現。
+              不確定的時候請給 true —— 多一顆按鈕只是白按一下，
+              少一顆按鈕會讓使用者永遠查不到那個詞的各種說法。
 
             ★ 不需要逐詞拆解，也不需要各種說法。那兩件事各自是另一次呼叫
               （見 SEGMENT_PROMPT 與 VARIANT_PROMPT），使用者點了才會跑。
@@ -529,7 +562,8 @@ public class OpenAiTranslationClient implements TranslationClient {
                     payload.chineseText(),
                     payload.thaiText(),
                     payload.romanization(),
-                    modelName, inputTokens, outputTokens, true);
+                    modelName, inputTokens, outputTokens, true,
+                    payload.isWord());
 
         } catch (BusinessException businessException) {
             // 已經是我們自己的錯誤碼，原封不動往外拋，不要被下面那個 catch 蓋成別的碼。
@@ -757,7 +791,26 @@ public class OpenAiTranslationClient implements TranslationClient {
              *       null  → 它沒表示意見 → 當作可以翻，照常往下走
              *       false → 它明確說不行 → 才擋掉
              */
-            Boolean translatable) {
+            Boolean translatable,
+            /*
+             * ★ 這是「使用者輸入的是一個詞，還是一句話」。
+             *
+             *   它的唯一用途是讓畫面決定「各種說法」那顆按鈕要不要出現 ——
+             *   查句子時按下去一定是空的（見 VARIANT_PROMPT 那條規則），
+             *   讓使用者按一顆註定沒東西的按鈕沒有意義。
+             *
+             *   ★ 為什麼是模型判斷而不是我們自己算？
+             *     因為中文詞與詞之間沒有空格，字數也分不開：
+             *         便利商店（4 個字）是詞
+             *         我想喝酒（4 個字）是句子
+             *     沒有字典的話，程式碼判斷不了這件事。
+             *
+             *   ★ 同樣用大寫 Boolean，理由跟上面 translatable 一樣：
+             *     要分得出「模型說不是」和「模型根本沒說」。
+             *     沒說的時候按鈕照常顯示 —— 寧可讓你多按一下看到「沒有其他說法」，
+             *     也不要把一個真的有說法的詞藏起來，那你永遠不會發現它被藏了。
+             */
+            Boolean isWord) {
     }
 
     /** 逐詞拆解那次呼叫的回傳格式。同樣必須是容器物件，不能是裸的陣列。 */

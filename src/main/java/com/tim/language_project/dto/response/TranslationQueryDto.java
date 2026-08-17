@@ -13,5 +13,7 @@ public record TranslationQueryDto(
         SpeakerGenderEnum gender,
         String chineseText,
         String thaiText,
-        String romanization) {
+        String romanization,
+        /** 是詞還是句子。null 代表不知道（舊資料或模型沒給），此時按鈕照常顯示。 */
+        Boolean isWord) {
 }
