@@ -47,6 +47,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -56,6 +58,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class TranslationQueryListRepositoryTest {
+
+    /**
+     * 「沒有外層交易」那支測試專用的原文。
+     * 它是唯一一支寫進去不會回滾的測試，所以要有一個固定的值能拿來清掉自己。
+     */
+    private static final String NO_TRANSACTION_SOURCE_TEXT = "測試勿刪無交易更新";
 
     @Autowired
     private TranslationQueryRepository translationQueryRepository;
@@ -196,6 +204,56 @@ class TranslationQueryListRepositoryTest {
 
         assertThat(favorites).extracting(TranslationSummaryDto::chineseText)
                 .doesNotContain("測試勿刪更新");
+    }
+
+    /*
+     * ═══ 測試六：沒有外層交易時，更新最後查看時間仍然要能成功 ═════════════
+     *
+     * ★ 這支是 2026-08-18 手動驗證抓到的 bug 的守門員。
+     *
+     *   症狀：一按查詢就回 500，訊息是
+     *         「No active transaction for update or delete query」。
+     *
+     *   原因：@Modifying 的 update 一定要在交易裡跑，但 TranslationService
+     *         的 translate() 沒有 @Transactional —— 它把寫入交給
+     *         TranslationPersistenceService，自己是在交易外面的。
+     *
+     *   ★ 為什麼上面五個測試都抓不到？
+     *     @DataJpaTest 會自動把「每一個測試」包在一個交易裡（跑完回滾），
+     *     所以那個必要條件被測試環境免費送了，正式環境卻沒有。
+     *
+     *     下面這行 @Transactional(propagation = NOT_SUPPORTED) 就是把那份
+     *     免費的交易關掉，讓測試跟正式環境的條件一致。
+     *
+     *   ★ 沒有交易也代表「寫進去的東西不會回滾」，所以這支要自己收拾 ——
+     *     頭尾各清一次。不清的話第二次執行會撞到唯一鍵而失敗，
+     *     而那個失敗訊息跟這支真正要防的東西完全無關，很浪費時間。
+     */
+    @Test
+    @DisplayName("沒有外層交易時仍應能更新最後查看時間")
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void shouldTouchLastViewedAtWithoutAmbientTransaction() {
+        // 先清掉上一次執行可能留下來的那一列。
+        removeLeftover();
+
+        TranslationQuery saved = translationQueryRepository.saveAndFlush(
+                newQuery(NO_TRANSACTION_SOURCE_TEXT, "ไม่มีทรานแซกชัน"));
+
+        try {
+            assertThat(translationQueryRepository.touchLastViewedAt(
+                    saved.getId(), LocalDateTime.of(2026, 8, 18, 14, 0))).isOne();
+        } finally {
+            translationQueryRepository.deleteById(saved.getId());
+        }
+    }
+
+    /** 清掉上一次執行留下來的那一列（測試失敗時 finally 也可能沒跑到）。 */
+    private void removeLeftover() {
+        translationQueryRepository.findByKey(
+                        NO_TRANSACTION_SOURCE_TEXT,
+                        TranslationDirectionEnum.ZH_TO_TH,
+                        SpeakerGenderEnum.MALE)
+                .ifPresent(leftover -> translationQueryRepository.deleteById(leftover.id()));
     }
 
     /**
