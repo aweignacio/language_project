@@ -81,6 +81,27 @@ export interface TranslationResponse {
   isWord: boolean | null;
 }
 
+/**
+ * 對應後端 TranslationSummaryDto，「最近」與「收藏」清單裡的一列。
+ *
+ * ★ 這不是 TranslationResponse 的簡化版，是另一個東西。
+ *   清單沒有 fromCache 與 isWord —— 那兩個欄位在清單的情境下沒有意義。
+ *
+ * ★ gender 可以是 null，代表那一筆是泰翻中（泰翻中沒有性別概念）。
+ *   前端要據此顯示「泰→中」而不是「男」或「女」。
+ */
+export interface TranslationSummary {
+  queryId: number;
+  chineseText: string;
+  thaiText: string;
+  romanization: string;
+  direction: TranslationDirection;
+  gender: SpeakerGender | null;
+  /** null 代表音檔還沒產生，顯示成灰色的播放鍵，點擊才會產生。 */
+  thaiAudioUrl: string | null;
+  favorited: boolean;
+}
+
 /** 對應後端 AudioResponseDto。 */
 export interface AudioResponse {
   audioUrl: string;

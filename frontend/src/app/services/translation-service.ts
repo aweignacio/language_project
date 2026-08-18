@@ -131,6 +131,7 @@ import {
   SpeechLanguage,
   TranslationResponse,
   TranslationSegment,
+  TranslationSummary,
   TranslationVariant,
 } from '../models/translation';
 
@@ -183,5 +184,50 @@ export class TranslationService {
   variants(queryId: number): Observable<TranslationVariant[]> {
     return this.http.post<TranslationVariant[]>(
       `/api/v1/translations/${queryId}/variants`, null);
+  }
+
+  /*
+   * ── ★ 底下五支「不會花錢」，所以動詞跟上面四支不一樣 ──────────────────
+   *
+   *  上面的 translate / synthesize / segments / variants 都是 POST，
+   *  理由是它們可能呼叫 OpenAI。
+   *
+   *  底下這五支只讀資料庫、或只改一個時間欄位，不可能花錢，
+   *  所以用 GET / PUT / DELETE。看網址就知道哪些請求有成本。
+   */
+
+  /** 最近搜尋，去重後最多 20 筆。沒有紀錄時回空陣列，那是正常結果不是錯誤。 */
+  recent(): Observable<TranslationSummary[]> {
+    return this.http.get<TranslationSummary[]>('/api/v1/translations/recent');
+  }
+
+  /** 收藏清單，加入收藏的時間新的在前。 */
+  favorites(): Observable<TranslationSummary[]> {
+    return this.http.get<TranslationSummary[]>('/api/v1/translations/favorites');
+  }
+
+  /**
+   * 加入收藏。用 PUT 是因為它的語意是「把它設成收藏狀態」——
+   * 連按兩下愛心不會產生第二筆，也不會出錯。
+   */
+  addFavorite(queryId: number): Observable<void> {
+    return this.http.put<void>(`/api/v1/translations/${queryId}/favorite`, null);
+  }
+
+  /** 取消收藏。 */
+  removeFavorite(queryId: number): Observable<void> {
+    return this.http.delete<void>(`/api/v1/translations/${queryId}/favorite`);
+  }
+
+  /**
+   * 用 id 還原一筆查詢的完整結果，點清單的一列時用這支。
+   *
+   * ★ 千萬不要改成「把文字填回輸入框再呼叫 translate()」。
+   *   translate 會經過快取鑰匙（原文＋方向＋性別）的比對，
+   *   那一筆是男生版而你當下切在女生的話，就是一筆全新的查詢 ——
+   *   真的呼叫 OpenAI、真的付錢，而畫面上看起來完全正常。
+   */
+  restore(queryId: number): Observable<TranslationResponse> {
+    return this.http.get<TranslationResponse>(`/api/v1/translations/${queryId}`);
   }
 }
