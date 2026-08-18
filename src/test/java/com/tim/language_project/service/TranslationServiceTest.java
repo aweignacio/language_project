@@ -90,6 +90,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /*
@@ -686,5 +687,77 @@ class TranslationServiceTest {
         return new TranslationResult(
                 "我想喝酒", "ผมอยากดื่มเหล้า", "pǒm yàak dùuem lâo",
                 "gpt-test", 80L, 40L, true, false);
+    }
+
+    /*
+     * ═══ 最近搜尋：兩條路都要更新最後查看時間 ═══════════════════════════
+     *
+     * ★ 只更新其中一條的話，常查的句子反而永遠停在清單底部 ——
+     *   因為常查的句子必定走快取那條路。
+     */
+    @Test
+    @DisplayName("快取命中時也要更新最後查看時間")
+    void shouldTouchLastViewedAtOnCacheHit() {
+        when(translationQueryRepository.findByKey(
+                "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE))
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        137L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH,
+                        SpeakerGenderEnum.MALE, "我想喝酒", "ผมอยากดื่มเหล้าครับ",
+                        "pǒm yàak dùuem lâo khráp", false)));
+
+        translationService.translate("我想喝酒", SpeakerGenderEnum.MALE);
+
+        verify(translationQueryRepository).touchLastViewedAt(eq(137L), any());
+    }
+
+    /*
+     * ═══ 還原一筆查詢：★ 絕對不可以花到錢 ═══════════════════════════════
+     *
+     * 這支防的是把「還原」實作成「重新查一次」。
+     *
+     * 重查會經過快取鑰匙（原文＋方向＋性別）的比對 ——
+     * 那一筆是男生版而使用者當下切在女生的話，就是一筆全新的查詢，
+     * 真的呼叫 OpenAI、真的付錢，而畫面上看起來完全正常。
+     */
+    @Test
+    @DisplayName("還原查詢不應呼叫翻譯服務或語音服務")
+    void shouldResolveByIdWithoutCallingAnyPaidService() {
+        when(translationQueryRepository.findDtoById(137L))
+                .thenReturn(Optional.of(new TranslationQueryDto(
+                        137L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH,
+                        SpeakerGenderEnum.MALE, "我想喝酒", "ผมอยากดื่มเหล้าครับ",
+                        "pǒm yàak dùuem lâo khráp", false)));
+
+        when(audioAssetService.findExistingAudioUrl("ผมอยากดื่มเหล้าครับ",
+                SpeechLanguageEnum.TH))
+                .thenReturn(Optional.of("/audio/th/a3f9c2.mp3"));
+
+        TranslationResponseDto response = translationService.resolveById(137L);
+
+        assertThat(response.queryId()).isEqualTo(137L);
+        assertThat(response.thaiText()).isEqualTo("ผมอยากดื่มเหล้าครับ");
+        assertThat(response.thaiAudioUrl()).isEqualTo("/audio/th/a3f9c2.mp3");
+
+        // 我主張：這次沒有產生任何新東西，所以 fromCache 是 true。
+        assertThat(response.fromCache()).isTrue();
+
+        // ★ 我主張：一毛錢都沒花。
+        verifyNoInteractions(translationClient);
+
+        // ★ 我主張：也沒有偷偷合成音檔（那同樣要付錢）。
+        verify(audioAssetService, never()).resolveAudioUrl(anyString(), any());
+    }
+
+    /*
+     * ═══ 還原不存在的查詢 ═══════════════════════════════════════════════
+     */
+    @Test
+    @DisplayName("還原不存在的查詢應丟出 RESOURCE_NOT_FOUND")
+    void shouldRejectResolveByIdForUnknownQuery() {
+        when(translationQueryRepository.findDtoById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> translationService.resolveById(999L))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCodeEnum.RESOURCE_NOT_FOUND);
     }
 }

@@ -51,6 +51,15 @@ package com.tim.language_project.service;
  *        有 → 直接組回應回傳，fromCache = true，★一毛錢都不花★
  *        沒有 → 往下走，真的呼叫 translationClient.translate(...)
  *
+ *    ★ 兩條路都會順便把 last_viewed_at 更新成現在時間 ——
+ *      那是「最近搜尋」清單的排序依據（2026-08-18 新增）。
+ *
+ *      不能拿 created_at 代替：那是第一次查的時間，快取命中時整列不動，
+ *      拿它排序排出來的是「第一次查的順序」，不是「最近看過的順序」。
+ *
+ *      也不可以只加在「新建立」那一條 —— 常查的句子必定走快取，
+ *      漏掉的話它反而永遠停在最近清單的底部。
+ *
  *    ★★ 這裡以前還有第二道關卡，2026-08-14 拿掉了，不要加回來 ★★
  *
  *      那段捷徑是：「整段輸入剛好是單字庫裡有的詞 → 直接拿單字庫的答案」。
@@ -211,6 +220,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -263,6 +273,10 @@ public class TranslationService {
                 translationQueryRepository.findByKey(sourceText, direction, effectiveGender);
 
         if (cached.isPresent()) {
+            // ★ 快取這一條也要更新，不可以只加在下面「新建立」那一條。
+            //   常查的句子必定走這裡 —— 漏掉的話它反而永遠停在最近清單的底部。
+            translationQueryRepository.touchLastViewedAt(cached.get().id(), LocalDateTime.now());
+
             return buildCachedResponse(cached.get());
         }
 
@@ -298,10 +312,36 @@ public class TranslationService {
                             ErrorCodeEnum.DATA_PERSIST_FAILED, exception));
         }
 
+        // 新建立的這一筆同樣要記上「最後查看時間」，否則它不會出現在最近清單。
+        translationQueryRepository.touchLastViewedAt(queryId, LocalDateTime.now());
+
         return new TranslationResponseDto(
                 queryId, sourceText, direction, effectiveGender,
                 result.chineseText(), result.thaiText(), result.romanization(),
                 thaiAudioUrl, chineseAudioUrl, false, result.isWord());
+    }
+
+    /**
+     * 用 id 把一筆查詢原封不動還原成完整結果，供「最近」與「收藏」清單點擊時使用。
+     *
+     * ★ 這個方法保證不花錢：只讀 translation_query，音檔只用
+     *   findExistingAudioUrl（只查不生）。所以對應的 API 才敢用 GET。
+     *
+     * ★ 千萬不要改成「拿 sourceText 重新呼叫 translate()」。
+     *   translate() 會經過快取鑰匙（原文＋方向＋性別）的比對，
+     *   那一筆是男生版而使用者當下切在女生時，就是一筆全新的查詢 ——
+     *   真的呼叫 OpenAI、真的付錢，而畫面上看起來完全正常。
+     *
+     * ★ 這裡刻意「不」更新 last_viewed_at。更新的話，
+     *   翻一輪收藏就會把最近清單洗成另一個順序，清單在眼皮底下跳動。
+     *
+     * @param queryId 清單那一列的 queryId
+     */
+    public TranslationResponseDto resolveById(Long queryId) {
+        TranslationQueryDto cached = translationQueryRepository.findDtoById(queryId)
+                .orElseThrow(() -> new BusinessException(ErrorCodeEnum.RESOURCE_NOT_FOUND));
+
+        return buildCachedResponse(cached);
     }
 
     /**
