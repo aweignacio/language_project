@@ -67,6 +67,29 @@ public class TranslationQuery {
     @Column(name = "is_word")
     private Boolean isWord;
 
+    /**
+     * 最後一次「使用者按下查詢」而命中或建立這一列的時間，「最近搜尋」清單的排序依據。
+     *
+     * ★ 不能用 createdAt 代替：那是第一次查的時間，快取命中時整列不動，
+     *   拿它排序會排出「第一次查的順序」而不是「最近看過的順序」。
+     *
+     * ★ 從清單點進去還原一筆時「不會」更新這個欄位 ——
+     *   否則翻一輪收藏就會把最近清單洗成另一個順序，清單在眼皮底下跳動。
+     *
+     * null 代表這一列早於本功能（2026-08-18 之前），不會出現在最近清單。
+     */
+    @Column(name = "last_viewed_at")
+    private LocalDateTime lastViewedAt;
+
+    /**
+     * 加入收藏的時間。★ null 就代表「沒有收藏」，一欄同時當旗標與排序依據。
+     *
+     * 不另外設一個 boolean 旗標，是因為兩個欄位就會多出
+     * 「旗標是 true 但時間是 null」這種不一致狀態要處理。
+     */
+    @Column(name = "favorited_at")
+    private LocalDateTime favoritedAt;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 

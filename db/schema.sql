@@ -94,6 +94,27 @@ CREATE TABLE IF NOT EXISTS translation_query
      */
     is_word       BOOLEAN,
 
+    /*
+     * 「最近搜尋」的排序依據：最後一次「使用者按下查詢」而命中或建立這一列的時間。
+     *
+     * ★ 不可以拿 created_at 代替。created_at 是第一次查的時間，
+     *   快取命中時整列不動 —— 昨天查過的句子今天再查一次它也不會變，
+     *   拿它排序排出來的是「第一次查的順序」，不是「最近看過的順序」。
+     *
+     * ★ 從清單點進去還原一筆時不更新這個欄位。更新的話，
+     *   翻一輪收藏就會把最近清單洗成另一個順序。
+     */
+    last_viewed_at TIMESTAMP    NULL,
+
+    /*
+     * 加入收藏的時間。★ NULL 就代表「沒有收藏」——
+     * 一個欄位同時當旗標與排序依據，不需要第二個 boolean。
+     *
+     * ★ 這個欄位不要補 DEFAULT。補了的話全部舊資料會一次變成「已收藏」，
+     *   而且畫面上看起來完全正常，你只會覺得收藏清單裡多了一堆沒印象的東西。
+     */
+    favorited_at  TIMESTAMP     NULL,
+
     created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -154,6 +175,38 @@ CREATE INDEX IF NOT EXISTS ix_translation_query_thai_text
  */
 ALTER TABLE translation_query
     ADD COLUMN IF NOT EXISTS is_word BOOLEAN;
+
+/*
+ * ★ 補欄位給「已經存在」的資料庫（2026-08-18）。
+ *
+ * 理由與上面的 is_word 完全相同：CREATE TABLE IF NOT EXISTS 在早就建好表的
+ * 環境（你的本機、正式的 Cloud SQL）整段會被跳過，新欄位永遠不會出現，
+ * 程式一啟動就會在查詢時炸掉說找不到欄位。
+ *
+ * 兩個欄位都保持 NULL，那是正確的初始狀態：
+ *   last_viewed_at NULL → 這一列早於本功能，不出現在最近清單
+ *   favorited_at   NULL → 沒有收藏
+ */
+ALTER TABLE translation_query
+    ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMP;
+
+ALTER TABLE translation_query
+    ADD COLUMN IF NOT EXISTS favorited_at TIMESTAMP;
+
+-- 「最近搜尋」的排序依據。沒有它，每次打開最近清單都會整表掃描後再排序。
+CREATE INDEX IF NOT EXISTS ix_translation_query_last_viewed_at
+    ON translation_query (last_viewed_at DESC);
+
+/*
+ * 「收藏」的排序依據。
+ *
+ * ★ 這是 partial index —— 只索引真的有收藏的那些列。
+ *   絕大多數列的 favorited_at 是 NULL，把它們一起放進索引只會讓索引變大、
+ *   每次寫入多做一次維護，而查詢一點也不會變快（反正條件就是 IS NOT NULL）。
+ */
+CREATE INDEX IF NOT EXISTS ix_translation_query_favorited_at
+    ON translation_query (favorited_at DESC)
+    WHERE favorited_at IS NOT NULL;
 
 /* ============================================================
  * 2. translation_segment —— 逐詞拆解結果
