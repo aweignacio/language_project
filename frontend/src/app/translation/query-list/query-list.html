@@ -1,0 +1,77 @@
+<section class="list">
+
+  <!-- 還在載入：跑動光條，與查詢畫面同一套視覺語言 -->
+  @if (items() === null) {
+    <div class="list__progress" aria-hidden="true"><span></span></div>
+  }
+
+  @if (failed()) {
+    <p class="list__hint">
+      載入失敗。
+      <button class="list__retry" type="button" (click)="load()">再試一次</button>
+    </p>
+  }
+
+  <!--
+    ★ 空陣列要跟「還在載入」分開處理。
+      一筆收藏都沒有是完全正常的狀態，該顯示的是引導，不是錯誤。
+  -->
+  @if (items(); as loaded) {
+    @if (!loaded.length && !failed()) {
+      <p class="list__hint">
+        {{ mode() === 'recent'
+         ? '還沒有查過任何東西，先到「查詢」打一句話試試。'
+         : '在查詢結果按 ♡ 就會收進這裡。' }}
+      </p>
+    }
+
+    <ul class="list__items">
+      @for (item of loaded; track item.queryId) {
+        <li class="row">
+
+          <!--
+            整列可點 → 還原這一筆。
+            ★ 用 <button> 不用 <div (click)>：鍵盤與螢幕閱讀器都能操作，
+              Enter 鍵自動就會觸發。
+          -->
+          <button class="row__main" type="button" (click)="select(item)">
+            <!-- 中文放第一行當標題 —— 在清單裡找東西是靠中文找的 -->
+            <span class="row__chinese">{{ item.chineseText }}</span>
+            <span class="row__thai">{{ item.thaiText }}</span>
+            <span class="row__romanization">{{ item.romanization }}</span>
+          </button>
+
+          <div class="row__side">
+            <!--
+              這一列自己的性別。
+              ★ 點下去不會改動畫面上方的性別設定 —— 那是一個持久設定，
+                被清單默默改掉的話，下一句自己打的字會用錯的性別去查。
+            -->
+            <span class="row__gender">{{ genderLabel(item) }}</span>
+
+            <button
+              class="row__heart"
+              type="button"
+              [class.row__heart--on]="item.favorited"
+              [attr.aria-label]="(item.favorited ? '取消收藏 ' : '加入收藏 ') + item.chineseText"
+              (click)="toggleFavorite(item)">
+              {{ item.favorited ? '♥' : '♡' }}
+            </button>
+
+            <!-- 灰色代表音檔還沒產生，點下去才會補生（第一次要等一兩秒） -->
+            <button
+              class="row__play"
+              type="button"
+              [class.row__play--ready]="item.thaiAudioUrl"
+              [attr.aria-label]="'播放 ' + item.thaiText"
+              (click)="play(item)">
+              {{ isSynthesizing(item.thaiText) ? '···' : '▶' }}
+            </button>
+          </div>
+
+        </li>
+      }
+    </ul>
+  }
+
+</section>
