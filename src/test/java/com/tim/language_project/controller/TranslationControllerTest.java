@@ -85,10 +85,12 @@ package com.tim.language_project.controller;
 
 import com.tim.language_project.dto.response.TranslationResponseDto;
 import com.tim.language_project.dto.response.TranslationSegmentDto;
+import com.tim.language_project.dto.response.TranslationSummaryDto;
 import com.tim.language_project.enums.ErrorCodeEnum;
 import com.tim.language_project.enums.SpeakerGenderEnum;
 import com.tim.language_project.enums.TranslationDirectionEnum;
 import com.tim.language_project.exception.BusinessException;
+import com.tim.language_project.service.QueryListService;
 import com.tim.language_project.service.TranslationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,7 +107,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -120,6 +125,10 @@ class TranslationControllerTest {
     /** 假的 Service，並且已經替換掉 Spring 容器裡真的那個。 */
     @MockitoBean
     private TranslationService translationService;
+
+    /** 最近與收藏兩份清單的 Service，同樣換成假的。 */
+    @MockitoBean
+    private QueryListService queryListService;
 
     /*
      * ═══ 測試一：快取命中的成功回應 ═════════════════════════════════════
@@ -271,6 +280,92 @@ class TranslationControllerTest {
                 .andExpect(jsonPath("$").isEmpty());
 
         verify(translationService).resolveVariants(137L);
+    }
+
+    /*
+     * ═══ 最近清單 ═══════════════════════════════════════════════════════
+     *
+     * ★ 這支同時在防一個很容易忽略的網址衝突：
+     *
+     *     GET /api/v1/translations/recent
+     *     GET /api/v1/translations/{queryId}
+     *
+     *   兩條路徑的形狀一模一樣。Spring 會優先比對「寫死的字」而不是變數，
+     *   所以 /recent 會正確地走到 recent()，不會被當成 queryId=recent 而回 400。
+     *   這個測試就是在確認那件事真的成立 —— 哪天換了路徑比對的實作，
+     *   壞掉的方式會是「最近分頁突然變成錯誤訊息」。
+     */
+    @Test
+    @DisplayName("最近清單應回傳 200 與清單內容")
+    void shouldReturnRecentList() throws Exception {
+        when(queryListService.recent()).thenReturn(List.of(new TranslationSummaryDto(
+                137L, "幫我叫計程車", "ช่วยเรียกแท็กซี่ให้ผมหน่อยครับ",
+                "chûai rîak tháek-sîi hâi pǒm nòi khráp",
+                TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                "/audio/th/a3f9c2.mp3", true)));
+
+        mockMvc.perform(get("/api/v1/translations/recent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].queryId").value(137))
+                .andExpect(jsonPath("$[0].thaiText").value("ช่วยเรียกแท็กซี่ให้ผมหน่อยครับ"))
+                // 前端靠這個決定愛心是實心還是空心
+                .andExpect(jsonPath("$[0].favorited").value(true))
+                // 前端靠 gender 顯示那一列右上角的「男／女」標籤
+                .andExpect(jsonPath("$[0].gender").value("MALE"));
+    }
+
+    /*
+     * ═══ 收藏清單為空時回空陣列，不是 404 ══════════════════════════════
+     *
+     * ★ 回 404 的話前端會顯示錯誤訊息，但「一筆收藏都沒有」是完全正常的狀態，
+     *   應該顯示的是「在查詢結果按愛心就會收進這裡」那句引導。
+     */
+    @Test
+    @DisplayName("收藏清單為空應回傳 200 與空陣列")
+    void shouldReturnEmptyFavorites() throws Exception {
+        when(queryListService.favorites()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/translations/favorites"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$").isEmpty());
+    }
+
+    /*
+     * ═══ 加入與取消收藏都回 204 ════════════════════════════════════════
+     *
+     * 不回內容，因為前端已經知道自己按了什麼，回傳整列只是多餘的傳輸。
+     */
+    @Test
+    @DisplayName("加入與取消收藏應回傳 204")
+    void shouldToggleFavorite() throws Exception {
+        mockMvc.perform(put("/api/v1/translations/137/favorite"))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(delete("/api/v1/translations/137/favorite"))
+                .andExpect(status().isNoContent());
+
+        verify(queryListService).addFavorite(137L);
+        verify(queryListService).removeFavorite(137L);
+    }
+
+    /*
+     * ═══ 還原一筆查詢 ═══════════════════════════════════════════════════
+     */
+    @Test
+    @DisplayName("以 id 還原查詢應回傳 200 與完整結果")
+    void shouldRestoreTranslationById() throws Exception {
+        when(translationService.resolveById(137L)).thenReturn(new TranslationResponseDto(
+                137L, "我想喝酒", TranslationDirectionEnum.ZH_TO_TH, SpeakerGenderEnum.MALE,
+                "我想喝酒", "ผมอยากดื่มเหล้าครับ", "pǒm yàak dùuem lâo khráp",
+                "/audio/th/a3f9c2.mp3", null, true, false));
+
+        mockMvc.perform(get("/api/v1/translations/137"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.queryId").value(137))
+                .andExpect(jsonPath("$.thaiText").value("ผมอยากดื่มเหล้าครับ"))
+                // 還原不會產生任何新東西，所以一定是 true
+                .andExpect(jsonPath("$.fromCache").value(true));
     }
 
     /*

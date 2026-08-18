@@ -111,13 +111,18 @@ package com.tim.language_project.controller;
 import com.tim.language_project.dto.request.TranslationRequestDto;
 import com.tim.language_project.dto.response.TranslationResponseDto;
 import com.tim.language_project.dto.response.TranslationSegmentDto;
+import com.tim.language_project.dto.response.TranslationSummaryDto;
 import com.tim.language_project.dto.response.TranslationVariantDto;
+import com.tim.language_project.service.QueryListService;
 import com.tim.language_project.service.TranslationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -135,6 +140,8 @@ import java.util.List;
 public class TranslationController {
 
     private final TranslationService translationService;
+
+    private final QueryListService queryListService;
 
     @PostMapping
     public ResponseEntity<TranslationResponseDto> translate(
@@ -171,5 +178,71 @@ public class TranslationController {
     @PostMapping("/{queryId}/variants")
     public ResponseEntity<List<TranslationVariantDto>> variants(@PathVariable Long queryId) {
         return ResponseEntity.ok(translationService.resolveVariants(queryId));
+    }
+
+    /*
+     * ★ 底下五支刻意「不用」POST，與上面三支形成對比：
+     *
+     *     POST（上面）→ 可能呼叫 OpenAI，可能花錢
+     *     GET / PUT / DELETE（下面）→ 只讀資料庫或只改一個時間欄位，不可能花錢
+     *
+     *   用動詞把兩者分開，看網址就知道哪些請求有成本。
+     */
+
+    /** 最近搜尋，去重後最多 20 筆。沒有紀錄時回空陣列，不是 404。 */
+    @GetMapping("/recent")
+    public ResponseEntity<List<TranslationSummaryDto>> recent() {
+        return ResponseEntity.ok(queryListService.recent());
+    }
+
+    /** 收藏清單，加入收藏的時間新的在前。沒有收藏時回空陣列，不是 404。 */
+    @GetMapping("/favorites")
+    public ResponseEntity<List<TranslationSummaryDto>> favorites() {
+        return ResponseEntity.ok(queryListService.favorites());
+    }
+
+    /**
+     * 加入收藏。
+     *
+     * ★ 用 PUT 不用 POST：PUT 的語意是「把它設成收藏狀態」，
+     *   重複呼叫結果一致，不會產生第二筆，連按兩下愛心也不會出錯。
+     *
+     * @param queryId 要收藏的那一筆查詢
+     */
+    @PutMapping("/{queryId}/favorite")
+    public ResponseEntity<Void> addFavorite(@PathVariable Long queryId) {
+        queryListService.addFavorite(queryId);
+
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 取消收藏。
+     *
+     * @param queryId 要取消收藏的那一筆查詢
+     */
+    @DeleteMapping("/{queryId}/favorite")
+    public ResponseEntity<Void> removeFavorite(@PathVariable Long queryId) {
+        queryListService.removeFavorite(queryId);
+
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 用 id 還原一筆查詢的完整結果，清單點擊時使用。
+     *
+     * ★ 這支敢用 GET，是因為它保證不呼叫 OpenAI、不合成音檔。
+     *   GET 在規範上代表只讀不寫，瀏覽器與中間的快取都會依這個前提行事 ——
+     *   會花錢的東西放在 GET 底下，重新整理或預先載入都可能默默多花一次錢。
+     *
+     * ★ 這個網址與上面的 /recent、/favorites 形狀相同。
+     *   Spring 比對路徑時「寫死的字」優先於變數，所以 /recent 會走到 recent()，
+     *   不會被當成 queryId=recent 而回 400。
+     *
+     * @param queryId 清單那一列的 queryId
+     */
+    @GetMapping("/{queryId}")
+    public ResponseEntity<TranslationResponseDto> restore(@PathVariable Long queryId) {
+        return ResponseEntity.ok(translationService.resolveById(queryId));
     }
 }
