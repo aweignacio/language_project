@@ -186,29 +186,20 @@
  *
  * ── 第 9 步｜按下播放鍵 ───────────────────────────────────────────────────
  *
- *    ★ 為什麼不是單純一個 <audio controls> 就好？
+ *    ★ 播放本身不在這個檔案裡（2026-08-18 搬走了）。
  *
- *      因為 OpenAI 生出來的泰文音檔音量偏小，而 HTML 的 <audio> 音量
- *      最大只能到 1.0（原音量），沒辦法再放大。
+ *      <audio> 元素、Web Audio 的放大鏈、AudioContext 的建立與喚醒，
+ *      全都在 services/audio-player.ts。這裡只呼叫 audioPlayer.play(網址)。
  *
- *      要真的放大，得走瀏覽器的 Web Audio API：
+ *      為什麼要搬：「最近」與「收藏」兩份清單也要能播放。讓它們各自再放一個
+ *      <audio> 與一條放大鏈的話，同一頁會有兩個 AudioContext，
+ *      音量倍率與「切走再切回來要叫醒它」的處理都得維護兩份。
  *
- *          <audio> 元素 → MediaElementSource（把聲音接出來）
- *                       → GainNode（音量放大 AUDIO_GAIN 倍，目前是 2）
- *                       → destination（送到喇叭）
- *
- *      接好之後，聲音就不再直接從 <audio> 流向喇叭，而是繞過放大器。
- *
- *    ★ 這裡有兩個坑：
- *
- *      (1) AudioContext 只能在「使用者動作之後」建立。
- *          瀏覽器不准網頁一載入就自己出聲，所以放在按鈕點擊裡才建立。
- *      (2) createMediaElementSource 對同一個 <audio> 元素只能呼叫一次，
- *          呼叫第二次會直接丟例外。所以 <audio> 元素刻意「永遠留在畫面上」
- *          （藏起來但不移除），而且用 audioContext 有沒有值來擋掉重複建立。
+ *    ★ 那個檔案裡有兩個坑的完整說明（AudioContext 只能在使用者動作之後建立、
+ *      createMediaElementSource 對同一個元素只能接一次），要動播放先看那裡。
  */
 
-import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 import {
   ErrorResponse,
@@ -219,20 +210,8 @@ import {
   TranslationSegment,
   TranslationVariant,
 } from '../models/translation';
+import { AudioPlayerService } from '../services/audio-player';
 import { TranslationService } from '../services/translation-service';
-
-/**
- * 音量放大倍率。1 是原音量。
- *
- * ★ 2026-08-15 從 2 倍改回 1 倍。
- *
- *   放大是為了救 OpenAI 那些偏小聲的音檔。改用 Google 之後，後端在存檔前
- *   就把每個音檔都正規化到同一個峰值（見 WavAudio），所以每個檔案本來就
- *   一樣大聲，這裡再乘 2 只會削頂破音。
- *
- *   放大鏈本身保留著 —— 日後若要調整音量，改這個數字就好。
- */
-const AUDIO_GAIN = 1;
 
 /** 後端在「AI 判定翻不出來」時回的錯誤碼，要當成正常結果顯示。 */
 const CODE_UNTRANSLATABLE = 'INPUT_UNSUPPORTED_CONTENT';
@@ -300,8 +279,8 @@ export class Translation {
 
   private readonly translationService = inject(TranslationService);
 
-  /** 對應 translation.html 裡的 <audio #audioPlayer>，用來實際播放與接上放大器。 */
-  private readonly audioPlayer = viewChild<ElementRef<HTMLAudioElement>>('audioPlayer');
+  /** 全站共用的播放器。<audio> 與放大鏈都在它裡面，這裡只負責說要播哪一段。 */
+  private readonly audioPlayer = inject(AudioPlayerService);
 
   /** 輸入框當下的內容。 */
   protected readonly sourceText = signal('');
@@ -375,9 +354,6 @@ export class Translation {
   protected readonly variantsFailed = signal(false);
 
   protected readonly variantsExpanded = signal(false);
-
-  /** Web Audio 的放大鏈，第一次按播放時才建立，之後重複使用。 */
-  private audioContext?: AudioContext;
 
   /** 輸入框每打一個字就同步到 sourceText 訊號。 */
   protected onInput(event: Event): void {
@@ -575,7 +551,7 @@ export class Translation {
       : translation.chineseAudioUrl;
 
     if (existingUrl) {
-      this.playAudio(existingUrl);
+      this.audioPlayer.play(existingUrl);
       return;
     }
 
@@ -598,7 +574,7 @@ export class Translation {
           ? { ...translation, thaiAudioUrl: response.audioUrl }
           : { ...translation, chineseAudioUrl: response.audioUrl });
 
-        this.playAudio(response.audioUrl);
+        this.audioPlayer.play(response.audioUrl);
       },
       error: () => {
         // 失敗就讓按鈕回到灰色，使用者可以再點一次重試。
@@ -624,7 +600,7 @@ export class Translation {
       : (target as TranslationSegment).chineseAudioUrl;
 
     if (existingUrl) {
-      this.playAudio(existingUrl);
+      this.audioPlayer.play(existingUrl);
       return;
     }
 
@@ -648,7 +624,7 @@ export class Translation {
           (target as TranslationSegment).chineseAudioUrl = response.audioUrl;
         }
 
-        this.playAudio(response.audioUrl);
+        this.audioPlayer.play(response.audioUrl);
       },
       error: () => {
         // 合成失敗就讓那顆鍵回到灰色，使用者可以再點一次重試。
@@ -668,46 +644,6 @@ export class Translation {
     }
 
     this.synthesizing.set(next);
-  }
-
-  /** 所有播放都走這裡，共用同一個 <audio> 與同一條放大鏈。 */
-  private playAudio(audioUrl: string | null | undefined): void {
-    const element = this.audioPlayer()?.nativeElement;
-
-    if (!audioUrl || !element) {
-      return;
-    }
-
-    this.connectAmplifier(element);
-
-    // 換了一段才重新載入，同一段重播不必再抓一次檔案。
-    if (!element.src.endsWith(audioUrl)) {
-      element.src = audioUrl;
-    }
-
-    element.currentTime = 0;
-    void element.play();
-  }
-
-  /**
-   * 把 <audio> 的聲音改道經過放大器再送到喇叭。
-   * 只做一次 —— 同一個元素重複接會丟例外，見檔頭第 6 步的說明。
-   */
-  private connectAmplifier(element: HTMLAudioElement): void {
-    if (this.audioContext) {
-      // 分頁切走再切回來時瀏覽器會把 AudioContext 暫停，這裡叫醒它。
-      void this.audioContext.resume();
-      return;
-    }
-
-    const context = new AudioContext();
-    const gainNode = context.createGain();
-    gainNode.gain.value = AUDIO_GAIN;
-
-    context.createMediaElementSource(element).connect(gainNode);
-    gainNode.connect(context.destination);
-
-    this.audioContext = context;
   }
 
   /** 依錯誤內容決定要顯示灰色提示、紅色錯誤，還是自己補一句連線失敗。 */

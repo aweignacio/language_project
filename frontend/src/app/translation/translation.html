@@ -341,10 +341,10 @@
 
 
   <!--
-    這個 <audio> 永遠留在畫面上（藏起來），不放進上面的 @if 裡面。
-    原因見 translation.ts 檔頭第 6 步：Web Audio 的放大器對同一個元素
-    只能接一次，元素被 @if 拆掉重建的話，放大器就會接到一個不存在的東西。
+    ★ 這裡以前有一個藏起來的 <audio>，2026-08-18 搬進 services/audio-player.ts。
+      播放器現在自己持有那個元素（new Audio()），不再依賴任何樣板 ——
+      「最近」與「收藏」兩份清單也要播放，共用同一條放大鏈才不會有兩個
+      AudioContext。
   -->
-  <audio #audioPlayer hidden></audio>
 
 </main>
