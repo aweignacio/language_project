@@ -20,9 +20,14 @@
  *
  *  1. TestBed 組出一個只有 App 的迷你 Angular 環境
  *  2. createComponent(App) 建立元件並渲染
- *  3. App 的樣板是 <app-translation />，所以 Translation 也會跟著被建立，
- *     它注入的 TranslationService、再往下注入的 HttpClient 都要接得起來
- *  4. 檢查畫面上真的有查詢按鈕，代表整條路都通了
+ *  3. App 是分頁殼（查詢／最近／收藏），預設停在「查詢」，
+ *     所以 Translation 也會跟著被建立，它注入的 TranslationService、
+ *     再往下注入的 HttpClient 都要接得起來
+ *  4. 檢查畫面上真的有三顆分頁鍵與查詢按鈕，代表整條路都通了
+ *
+ *  ★ 「最近」與「收藏」兩個分頁的 QueryList 不會在這裡被建立 ——
+ *    它們是 @if 控制的，預設分頁是查詢。要測它們得先切分頁，
+ *    那是另一支測試的事。
  */
 
 import { TestBed } from '@angular/core/testing';
@@ -44,12 +49,16 @@ describe('App', () => {
     expect(fixture.componentInstance).toBeTruthy();
   });
 
-  it('應該渲染出查詢畫面', async () => {
+  it('應該渲染出分頁列與查詢畫面', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
 
     const compiled = fixture.nativeElement as HTMLElement;
 
+    // 三顆分頁鍵都要在
+    expect(compiled.querySelectorAll('.tabs__item').length).toBe(3);
+
+    // 預設停在「查詢」，所以查詢畫面要看得到
     expect(compiled.querySelector('h1')?.textContent).toContain('中泰翻譯查詢');
     expect(compiled.querySelector('.search__button')?.textContent).toContain('查詢');
   });

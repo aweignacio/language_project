@@ -400,6 +400,31 @@
   color: var(--ivory-dim);
 }
 
+/*
+ * 結果區的收藏鍵。空心是還沒收藏，實心是已收藏。
+ * margin-left: auto 把它推到整列最右邊，與左邊的原文、標記分開。
+ */
+.favorite {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  background: none;
+  color: var(--ivory-faint);
+  font-size: 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.favorite--on {
+  color: var(--gold-400);
+  border-color: var(--gold-600);
+}
+
 /* 用全形引號把原句框起來，一眼看出這是「你剛剛輸入的東西」 */
 .result__source::before {
   content: "「";

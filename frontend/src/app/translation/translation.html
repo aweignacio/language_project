@@ -115,6 +115,22 @@
         } @else {
           <span class="badge badge--fresh">本次新查詢</span>
         }
+
+        <!--
+          收藏。★ 這顆鍵永遠都在，實心代表已收藏。
+
+          收藏的單位是「一次查詢」，也就是含當初的方向與性別 ——
+          同一句中文的男版與女版是兩筆不同的收藏。
+        -->
+        <button
+          class="favorite"
+          type="button"
+          [class.favorite--on]="resultFavorited()"
+          [disabled]="favoriteBusy()"
+          [attr.aria-label]="resultFavorited() ? '取消收藏' : '加入收藏'"
+          (click)="toggleResultFavorite()">
+          {{ resultFavorited() ? '♥' : '♡' }}
+        </button>
       </div>
 
       <p class="result__thai">{{ translation.thaiText }}</p>

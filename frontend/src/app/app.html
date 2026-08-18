@@ -1,1 +1,53 @@
-<app-translation />
+<!-- 分頁列 -->
+<nav class="tabs" role="tablist" aria-label="主要分頁">
+  <button
+    class="tabs__item"
+    type="button"
+    role="tab"
+    [class.tabs__item--active]="tab() === 'search'"
+    [attr.aria-selected]="tab() === 'search'"
+    (click)="switchTo('search')">
+    查詢
+  </button>
+
+  <button
+    class="tabs__item"
+    type="button"
+    role="tab"
+    [class.tabs__item--active]="tab() === 'recent'"
+    [attr.aria-selected]="tab() === 'recent'"
+    (click)="switchTo('recent')">
+    最近
+  </button>
+
+  <button
+    class="tabs__item"
+    type="button"
+    role="tab"
+    [class.tabs__item--active]="tab() === 'favorite'"
+    [attr.aria-selected]="tab() === 'favorite'"
+    (click)="switchTo('favorite')">
+    ♡ 收藏
+  </button>
+</nav>
+
+<!--
+  ★ 查詢分頁用 hidden 藏起來，不用 @if 拆掉。
+    拆掉的話切走再切回來，剛剛查的結果與展開的逐詞拆解會整個消失，
+    而且 app.ts 的 @ViewChild 會拿不到它，點清單就完全沒有反應。
+-->
+<div [hidden]="tab() !== 'search'">
+  <app-translation />
+</div>
+
+<!--
+  ★ 這兩個清單相反，用 @if：切過去的時候才建立、才去要資料。
+    不然你在查詢分頁按了愛心，切到收藏會看不到它。
+-->
+@if (tab() === 'recent') {
+  <app-query-list mode="recent" (restore)="restore($event)" />
+}
+
+@if (tab() === 'favorite') {
+  <app-query-list mode="favorite" (restore)="restore($event)" />
+}

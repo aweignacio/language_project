@@ -1,0 +1,41 @@
+/*
+ * 分頁列的樣式。
+ * 查詢畫面自己的排版在 translation.css、清單在 query-list.css，
+ * 這裡只管上方那三顆分頁鍵。
+ *
+ * 顏色與字型一律取用 styles.css 的設計變數，不自己寫死色碼。
+ */
+
+.tabs {
+  display: flex;
+  justify-content: center;
+  gap: 1.75rem;
+  padding: 1.1rem 1.5rem 0;
+}
+
+.tabs__item {
+  position: relative;
+  border: 0;
+  padding: 0.45rem 0.2rem;
+  background: none;
+  color: var(--ivory-faint);
+  font-family: var(--font-serif);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+/* 選中的分頁：字變金色，底下補一條金線 */
+.tabs__item--active {
+  color: var(--gold-400);
+}
+
+.tabs__item--active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--gold-500);
+}

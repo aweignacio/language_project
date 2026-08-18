@@ -355,6 +355,17 @@ export class Translation {
 
   protected readonly variantsExpanded = signal(false);
 
+  /**
+   * 結果區那顆愛心是不是實心的。
+   *
+   * ★ 與 result 分開存，因為 TranslationResponse 沒有這個欄位 ——
+   *   查詢那支 API 不回收藏狀態（多問一次要多一趟往返）。
+   */
+  protected readonly resultFavorited = signal(false);
+
+  /** 愛心請求進行中，避免連點兩下送出兩個請求。 */
+  protected readonly favoriteBusy = signal(false);
+
   /** 輸入框每打一個字就同步到 sourceText 訊號。 */
   protected onInput(event: Event): void {
     this.sourceText.set((event.target as HTMLInputElement).value);
@@ -391,12 +402,89 @@ export class Translation {
     this.translationService.translate(this.sourceText(), this.gender()).subscribe({
       next: (response) => {
         this.result.set(response);
+
+        // ★ 新查出來的結果一律從「空心」開始。
+        //
+        //   這代表查一句以前收藏過的話，愛心會顯示成空心 —— 刻意的取捨：
+        //   要顯示對的狀態就得每次查詢多打一支 API 去問收藏狀態，
+        //   而按下去只是把 favorited_at 重設一次（後端的 IS NULL 條件會擋掉，
+        //   收藏時間不會被覆寫，清單也不會多出第二列）。代價可以接受。
+        this.resultFavorited.set(false);
         this.loading.set(false);
       },
       error: (error: HttpErrorResponse) => {
         this.showError(error);
         this.loading.set(false);
       },
+    });
+  }
+
+  /**
+   * 由外面（App）在使用者點了「最近」或「收藏」清單的某一列時呼叫。
+   *
+   * ★ 這裡走的是 restore（GET，用 id 還原），不是 search（POST，重新查一次）。
+   *   重查會經過快取鑰匙（原文＋方向＋性別）的比對 ——
+   *   那一筆是男生版而你當下切在女生的話，就是一筆全新的查詢，
+   *   真的呼叫 OpenAI、真的付錢，而畫面上看起來完全正常。
+   *
+   * ★ 也刻意不去改動性別切換的狀態。那是一個持久設定（存 localStorage），
+   *   被清單默默改掉的話，你下一句自己打的字會用錯的性別去查。
+   *
+   * @param queryId 清單那一列的 queryId
+   * @param favorited 那一列當下的收藏狀態，直接拿來當愛心的初始樣子
+   */
+  restoreQuery(queryId: number, favorited: boolean): void {
+    this.loading.set(true);
+    this.errorMessage.set(null);
+    this.noticeMessage.set(null);
+
+    // ★ 上一句的拆解與說法一定要清掉，不然新結果會頂著舊句子的拆解顯示。
+    this.resetExpandables();
+
+    this.translationService.restore(queryId).subscribe({
+      next: (response) => {
+        this.result.set(response);
+
+        // 輸入框同步成這一筆的原文，接下來想改幾個字再查很順手。
+        this.sourceText.set(response.sourceText);
+
+        // 愛心狀態由清單那一列傳進來 —— 那份資料剛從後端拿到，是準的，
+        // 不必為了一顆愛心再多打一支 API。
+        this.resultFavorited.set(favorited);
+        this.loading.set(false);
+      },
+      error: (error: HttpErrorResponse) => {
+        this.showError(error);
+        this.loading.set(false);
+      },
+    });
+  }
+
+  /**
+   * 點下結果區的愛心。
+   *
+   * ★ 失敗時狀態不變 —— 愛心停在「看起來成功了」的樣子，
+   *   使用者會以為收藏好了，下次打開收藏卻找不到。
+   */
+  protected toggleResultFavorite(): void {
+    const translation = this.result();
+
+    if (!translation || this.favoriteBusy()) {
+      return;
+    }
+
+    this.favoriteBusy.set(true);
+
+    const request = this.resultFavorited()
+      ? this.translationService.removeFavorite(translation.queryId)
+      : this.translationService.addFavorite(translation.queryId);
+
+    request.subscribe({
+      next: () => {
+        this.resultFavorited.set(!this.resultFavorited());
+        this.favoriteBusy.set(false);
+      },
+      error: () => this.favoriteBusy.set(false),
     });
   }
 
