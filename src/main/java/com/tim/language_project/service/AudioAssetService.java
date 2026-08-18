@@ -80,7 +80,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
 
+import java.util.Collection;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * 全站唯一的語音合成入口，先查資料庫再決定要不要花錢。
@@ -139,6 +142,31 @@ public class AudioAssetService {
 
         return audioAssetRepository.findBySpeechTextAndLanguage(speechText, language)
                 .map(audioAsset -> toAudioUrl(audioAsset.filePath()));
+    }
+
+    /**
+     * 一次查一整批文字的現成音檔，★絕對不會觸發合成★。
+     *
+     * 回傳的 Map 以文字為鍵、網址為值；沒有音檔的文字「不會出現在 Map 裡」，
+     * 呼叫端用 get 拿到 null 就知道那一列的播放鍵要顯示成灰的。
+     *
+     * ★ 清單畫面一定要用這支，不可以在迴圈裡呼叫 findExistingAudioUrl ——
+     *   那是 N+1，收藏一百筆就是一百趟資料庫往返，而且資料少時看不出來。
+     */
+    public Map<String, String> findExistingAudioUrls(Collection<String> speechTexts,
+                                                     SpeechLanguageEnum language) {
+        if (ObjectUtils.isEmpty(speechTexts)) {
+            return Map.of();
+        }
+
+        return audioAssetRepository.findBySpeechTextInAndLanguage(speechTexts, language)
+                .stream()
+                .collect(Collectors.toMap(
+                        AudioAssetDto::speechText,
+                        audioAsset -> toAudioUrl(audioAsset.filePath()),
+                        // 同一段文字同一語言在資料庫有唯一鍵，理論上撞不到。
+                        // 真的撞到時取先出現的那一個 —— 兩個檔案內容一樣，播哪個都對。
+                        (existing, duplicate) -> existing));
     }
 
     /**

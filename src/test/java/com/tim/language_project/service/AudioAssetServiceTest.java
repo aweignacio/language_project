@@ -42,12 +42,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -116,5 +119,57 @@ class AudioAssetServiceTest {
 
         assertThat(audioUrl).isEmpty();
         verify(audioAssetRepository, never()).saveAndFlush(any());
+    }
+
+    /*
+     * ═══ 批次查音檔：一次查詢就要拿到全部，不可以一列查一次 ═══════════════
+     *
+     * ★ 這支防的是 N+1。
+     *
+     *   收藏清單有一百筆，若每一列各自呼叫 findExistingAudioUrl，
+     *   就是一百趟資料庫往返。資料只有十幾筆的時候完全看不出來，
+     *   累積之後每次打開收藏都慢一拍，而且沒有任何錯誤訊息。
+     *
+     *   所以這裡 verify 的不只是「結果對」，還有「只查了一次」。
+     */
+    @Test
+    @DisplayName("批次查音檔應只打一次資料庫並回傳文字對網址的對照")
+    void shouldFindExistingAudioUrlsInOneQuery() {
+        List<String> speechTexts = List.of("ผมอยากดื่มเหล้าครับ", "ไม่ใส่ผักชีครับ");
+
+        when(audioAssetRepository.findBySpeechTextInAndLanguage(
+                speechTexts, SpeechLanguageEnum.TH))
+                .thenReturn(List.of(new AudioAssetDto(
+                        1L, "ผมอยากดื่มเหล้าครับ", SpeechLanguageEnum.TH, "th/a3f9c2.mp3")));
+
+        Map<String, String> urls = audioAssetService.findExistingAudioUrls(
+                speechTexts, SpeechLanguageEnum.TH);
+
+        // 我主張：查到的那句變成可以直接放進 <audio src> 的網址。
+        assertThat(urls).containsEntry("ผมอยากดื่มเหล้าครับ", "/audio/th/a3f9c2.mp3");
+
+        // 我主張：沒有音檔的那句「不出現在 Map 裡」，而不是對到一個 null。
+        // 呼叫端用 Map.get 拿到 null 就知道是灰色的鍵，不必再處理第二種空值。
+        assertThat(urls).doesNotContainKey("ไม่ใส่ผักชีครับ");
+
+        // 我主張：整批只打了一次資料庫。
+        verify(audioAssetRepository, times(1))
+                .findBySpeechTextInAndLanguage(speechTexts, SpeechLanguageEnum.TH);
+    }
+
+    /*
+     * 空清單不可以打資料庫 —— 收藏一筆都沒有時，
+     * 送出 WHERE speech_text IN () 這種空集合查詢是白跑一趟。
+     */
+    @Test
+    @DisplayName("文字清單為空時不應查詢資料庫")
+    void shouldSkipQueryWhenSpeechTextsEmpty() {
+        Map<String, String> urls = audioAssetService.findExistingAudioUrls(
+                List.of(), SpeechLanguageEnum.TH);
+
+        assertThat(urls).isEmpty();
+
+        verify(audioAssetRepository, never())
+                .findBySpeechTextInAndLanguage(any(), any());
     }
 }
