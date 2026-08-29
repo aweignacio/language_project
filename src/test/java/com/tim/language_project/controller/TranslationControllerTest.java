@@ -94,6 +94,7 @@ import com.tim.language_project.service.QueryListService;
 import com.tim.language_project.service.TranslationService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
@@ -103,6 +104,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
@@ -347,6 +349,33 @@ class TranslationControllerTest {
 
         verify(queryListService).addFavorite(137L);
         verify(queryListService).removeFavorite(137L);
+    }
+
+    /*
+     * ═══ 拖曳排序：把整份順序原樣交給 Service ═══════════════════════════
+     *
+     * 前端送來的是「排好的完整 id 陣列」，不是「把 A 移到第 3 位」：
+     *
+     *     PUT /api/v1/translations/favorites/order
+     *     { "queryIds": [88, 137, 42] }
+     *
+     * ★ 這支驗的重點是「順序有沒有被保住」。JSON 的陣列是有序的，
+     *   但接收端如果不小心宣告成 Set，順序就會在轉換的當下悄悄消失 ——
+     *   而畫面上的症狀是「排好了，重新整理又跳回去」。
+     *   下面那個 containsExactly 就是在守這件事（用 contains 會抓不到）。
+     */
+    @Test
+    @DisplayName("重新排序應把整份 id 順序原樣傳給 Service")
+    void shouldPassFavoriteOrderToService() throws Exception {
+        mockMvc.perform(put("/api/v1/translations/favorites/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"queryIds\":[88,137,42]}"))
+                .andExpect(status().isNoContent());
+
+        ArgumentCaptor<List<Long>> captor = ArgumentCaptor.forClass(List.class);
+        verify(queryListService).reorderFavorites(captor.capture());
+
+        assertThat(captor.getValue()).containsExactly(88L, 137L, 42L);
     }
 
     /*

@@ -50,6 +50,25 @@ package com.tim.language_project.service;
  *    ★ 找不到那個 id 時要丟 BusinessException，不可以默默當成成功 ——
  *      前端會把愛心變成已取消的樣子，但資料庫其實什麼都沒發生。
  *
+ * ── 第 5 步｜你按住 ☰ 把某一列拖到別的位置（2026-08-29 新增）────────────
+ *
+ *    reorderFavorites([88, 137, 42]) 照陣列順序寫入 0、1、2。
+ *
+ *    ★ 驗證要在開始寫之前全部做完。寫了兩列才發現第三個 id 有問題的話，
+ *      前端收到失敗會退回原順序，資料庫卻已經有兩列被改掉 ——
+ *      下次打開收藏是一個誰都沒看過的順序。測試八的 never() 就在守這件事。
+ *
+ * ── 每個測試各自在防什麼 ────────────────────────────────────────────────
+ *
+ *    一：清單組裝時的 N+1（收藏一百筆就是一百趟往返，資料少時看不出來）
+ *    二：最近清單的 20 筆上限跑掉
+ *    三：連按兩下愛心跳出沒道理的紅字
+ *    四：對不存在的 id 收藏卻默默成功，愛心變實心但收藏清單裡沒有
+ *    五：新收藏沒有排到最上面
+ *    六：功能上線那一刻所有序號都還是 null，沒處理會是「按愛心就 500」
+ *    七：拖曳後順序沒有正確寫進去
+ *    八：★ 排序寫到一半失敗，留下半新半舊的順序
+ *
  * ── 什麼東西被換成假的 ──────────────────────────────────────────────────
  *
  *    Repository 與 AudioAssetService 都是 @Mock（假的）。
@@ -78,8 +97,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -148,11 +169,11 @@ class QueryListServiceTest {
     @DisplayName("重複加入收藏不應視為錯誤")
     void shouldTreatRepeatedFavoriteAsSuccess() {
         when(translationQueryRepository.existsById(137L)).thenReturn(true);
-        when(translationQueryRepository.markFavorite(eq(137L), any())).thenReturn(0);
+        when(translationQueryRepository.markFavorite(eq(137L), any(), anyInt())).thenReturn(0);
 
         queryListService.addFavorite(137L);
 
-        verify(translationQueryRepository).markFavorite(eq(137L), any());
+        verify(translationQueryRepository).markFavorite(eq(137L), any(), anyInt());
     }
 
     /*
@@ -169,6 +190,87 @@ class QueryListServiceTest {
         assertThatThrownBy(() -> queryListService.addFavorite(999L))
                 .isInstanceOf(BusinessException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCodeEnum.RESOURCE_NOT_FOUND);
+    }
+
+    /*
+     * ═══ 測試五：新收藏排在最上面 ═══════════════════════════════════════
+     *
+     * 手動排序之後，序號小的排前面。新按的收藏要出現在最上面，
+     * 所以它拿的是「目前最小值減一」——★ 負數是刻意的：
+     * 這樣新增一筆不必把其他每一列重新編號。
+     */
+    @Test
+    @DisplayName("新加入的收藏應取得比現有最小序號還小的序號")
+    void shouldPlaceNewFavoriteAboveExistingOnes() {
+        when(translationQueryRepository.existsById(137L)).thenReturn(true);
+        when(translationQueryRepository.findMinFavoriteOrder()).thenReturn(-3);
+
+        queryListService.addFavorite(137L);
+
+        verify(translationQueryRepository).markFavorite(eq(137L), any(), eq(-4));
+    }
+
+    /*
+     * ═══ 測試六：還沒有任何序號時從 -1 開始 ═════════════════════════════
+     *
+     * ★ 這是本功能上線那一刻的狀態：所有既有收藏的 favorite_order 都是 null，
+     *   findMinFavoriteOrder 因此回 null。沒處理的話會是 NullPointerException，
+     *   症狀是「按愛心就 500」。
+     */
+    @Test
+    @DisplayName("尚無任何收藏序號時新收藏應取得 -1")
+    void shouldStartOrderAtMinusOneWhenNoFavoriteHasOrder() {
+        when(translationQueryRepository.existsById(137L)).thenReturn(true);
+        when(translationQueryRepository.findMinFavoriteOrder()).thenReturn(null);
+
+        queryListService.addFavorite(137L);
+
+        verify(translationQueryRepository).markFavorite(eq(137L), any(), eq(-1));
+    }
+
+    /*
+     * ═══ 測試七：拖曳排序依陣列順序寫入 0、1、2 ═════════════════════════
+     *
+     * 前端送來的是「排好的完整 id 陣列」，不是「把 A 移到第 3 位」。
+     * 所以這裡要做的就是照順序把索引寫進去。
+     */
+    @Test
+    @DisplayName("重新排序應依陣列順序寫入連續序號")
+    void shouldWriteSequentialOrderWhenReordering() {
+        List<Long> ordered = List.of(88L, 137L, 42L);
+
+        when(translationQueryRepository.countFavoritedIn(ordered)).thenReturn(3L);
+
+        queryListService.reorderFavorites(ordered);
+
+        verify(translationQueryRepository).updateFavoriteOrder(88L, 0);
+        verify(translationQueryRepository).updateFavoriteOrder(137L, 1);
+        verify(translationQueryRepository).updateFavoriteOrder(42L, 2);
+    }
+
+    /*
+     * ═══ 測試八：id 對不上時整批不寫 ════════════════════════════════════
+     *
+     * ★ 這一題防的是「寫到一半才發現不對」。
+     *   逐列寫入時如果寫了兩列才丟例外，前端收到失敗會把畫面退回原順序，
+     *   但資料庫裡已經有兩列被改掉了 —— 下次打開收藏就是一個
+     *   誰都沒看過的順序，而且完全不知道怎麼來的。
+     *
+     *   所以驗證要在「開始寫之前」全部做完。never() 那一行就是在守這件事。
+     */
+    @Test
+    @DisplayName("重新排序含有非收藏的 id 時應整批拒絕且不寫入任何一列")
+    void shouldRejectReorderContainingUnknownQuery() {
+        List<Long> ordered = List.of(88L, 137L, 999L);
+
+        // 三個 id 裡只有兩個真的在收藏中。
+        when(translationQueryRepository.countFavoritedIn(ordered)).thenReturn(2L);
+
+        assertThatThrownBy(() -> queryListService.reorderFavorites(ordered))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCodeEnum.RESOURCE_NOT_FOUND);
+
+        verify(translationQueryRepository, never()).updateFavoriteOrder(anyLong(), anyInt());
     }
 
     /** 組一列清單資料。音檔固定給 null —— 那正是待測方法要補上的東西。 */

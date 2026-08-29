@@ -148,3 +148,71 @@
   color: var(--gold-400);
   border-color: var(--gold-600);
 }
+
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ *  拖曳排序（只有收藏分頁會用到）
+ * ══════════════════════════════════════════════════════════════════════
+ */
+
+/*
+ * 拖曳把手。刻意做得比視覺上看起來大一點（2.25rem）——
+ * 手指的接觸面積約 44px，把手太小在手機上會一直抓不到。
+ */
+.row__handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  background: none;
+  color: var(--ivory-faint);
+  font-size: 1rem;
+  line-height: 1;
+
+  /* 按住是要拖，不是要選字 */
+  cursor: grab;
+  user-select: none;
+
+  /*
+   * ★ 這一行是手機能不能拖的關鍵。
+   *   預設瀏覽器會把「在這裡垂直滑動」解讀成捲動頁面，於是手指一動
+   *   畫面就跟著捲，那一列永遠拖不起來。none 等於告訴瀏覽器
+   *   「這一小塊的觸控我自己處理」，捲動交給清單其他地方。
+   */
+  touch-action: none;
+}
+
+.row__handle:active {
+  cursor: grabbing;
+  color: var(--gold-400);
+}
+
+/* 正被拖著走的那一列。抬起來一點，看得出來它離開了原位 */
+.cdk-drag-preview {
+  box-sizing: border-box;
+  border-radius: 4px;
+  border: 1px solid var(--gold-600);
+  background: var(--ink-800);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+  opacity: 0.95;
+}
+
+/* 原位置留下的空洞。虛線框讓人知道「放開的話會插在這裡」 */
+.cdk-drag-placeholder {
+  border: 1px dashed var(--gold-600);
+  background: rgb(255 255 255 / 3%);
+  opacity: 0.5;
+}
+
+/* 其他列讓位時滑順一點，不要瞬間跳 */
+.cdk-drop-list-dragging .row:not(.cdk-drag-placeholder) {
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* 放開之後那一列飛回定位的動畫 */
+.cdk-drag-animating {
+  transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
+}

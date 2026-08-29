@@ -55,7 +55,25 @@
  *    ★ 失敗時愛心要退回原本的樣子。停在「看起來成功了」的話，
  *      你會以為收藏好了，下次打開收藏卻找不到。
  *
- * ── 第 5 步｜你點的是整列（不是 ▶ 也不是 ♥）────────────────────────────
+ * ── 第 4.5 步｜你按住 ☰ 把某一列拖到別的位置（只有收藏分頁有）──────────
+ *
+ *    放開的瞬間先把畫面排好，同時送出整份新順序：
+ *
+ *        PUT /api/v1/translations/favorites/order
+ *        { "queryIds": [88, 137, 42] }
+ *
+ *    ★ 為什麼先排畫面再送（樂觀更新）：等後端回來才動的話，手指放開之後
+ *      那一列會先彈回原位再跳到新位置，看起來像沒拖成功。
+ *
+ *    ★ 失敗一定要退回拖之前的順序，並顯示一行提示。
+ *      這與第 4 步愛心失敗要退回原樣是同一條規則 ——
+ *      停在「看起來成功了」的話，下次打開收藏會是舊順序而你不知道為什麼。
+ *
+ *    ★ 只有把手能拖，整列不行。整列已經是一個 <button>（第 5 步的還原），
+ *      整列可拖的話按住想拖跟想點分不出來，而且在手機上垂直拖曳會跟
+ *      頁面捲動打架。把手的 CSS 有一行 touch-action: none 就是在處理這件事。
+ *
+ * ── 第 5 步｜你點的是整列（不是 ▶ 也不是 ♥ 也不是 ☰）────────────────────
  *
  *    發出 restore 事件把那一列交給 App，由 App 切到「查詢」分頁並還原。
  *
@@ -73,6 +91,7 @@
  *    所以這裡只在每一列標出它自己的性別，設定一動也不動。
  */
 
+import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
 import { Component, OnInit, inject, input, output, signal } from '@angular/core';
 import { TranslationSummary } from '../../models/translation';
 import { AudioPlayerService } from '../../services/audio-player';
@@ -83,7 +102,7 @@ export type QueryListMode = 'recent' | 'favorite';
 
 @Component({
   selector: 'app-query-list',
-  imports: [],
+  imports: [CdkDrag, CdkDragHandle, CdkDropList],
   templateUrl: './query-list.html',
   styleUrl: './query-list.css',
 })
@@ -108,6 +127,9 @@ export class QueryList implements OnInit {
   protected readonly items = signal<TranslationSummary[] | null>(null);
 
   protected readonly failed = signal(false);
+
+  /** 拖曳排序存檔失敗。順序已經退回原樣，這個旗標只負責告訴使用者「沒存到」。 */
+  protected readonly reorderFailed = signal(false);
 
   /** 正在合成中的文字，用來把那一顆播放鍵顯示成載入中。 */
   protected readonly synthesizing = signal<ReadonlySet<string>>(new Set());
@@ -231,6 +253,46 @@ export class QueryList implements OnInit {
   /** 點整列：把那一列交給外面，由 App 切到查詢分頁並還原。 */
   protected select(item: TranslationSummary): void {
     this.restore.emit(item);
+  }
+
+  /** 只有收藏分頁能拖曳排序。最近清單的順序由「最後查看時間」決定，排了也留不住。 */
+  protected get reorderable(): boolean {
+    return this.mode() === 'favorite';
+  }
+
+  /**
+   * 放開拖曳中的那一列。
+   *
+   * ★ 先把畫面排好再送請求（樂觀更新）。等後端回來才動的話，
+   *   手指放開之後那一列會先彈回原位再跳到新位置，看起來像沒拖成功。
+   *
+   * ★ 失敗一定要退回拖之前的順序。停在「看起來成功了」的話，
+   *   你會以為排好了，下次打開收藏卻是舊的順序 ——
+   *   這與愛心失敗要退回原樣是同一條規則。
+   */
+  protected drop(event: CdkDragDrop<TranslationSummary[]>): void {
+    if (event.previousIndex === event.currentIndex) {
+      return;
+    }
+
+    const before = this.items() ?? [];
+
+    // moveItemInArray 會就地改動傳進去的陣列，所以先複製一份，
+    // 這樣 before 才留得住拖曳前的順序可以回滾。
+    const after = [...before];
+    moveItemInArray(after, event.previousIndex, event.currentIndex);
+
+    this.items.set(after);
+    this.reorderFailed.set(false);
+
+    this.translationService
+      .reorderFavorites(after.map((item) => item.queryId))
+      .subscribe({
+        error: () => {
+          this.items.set(before);
+          this.reorderFailed.set(true);
+        },
+      });
   }
 
   /**

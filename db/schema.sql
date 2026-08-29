@@ -115,6 +115,18 @@ CREATE TABLE IF NOT EXISTS translation_query
      */
     favorited_at  TIMESTAMP     NULL,
 
+    /*
+     * 收藏清單的手動排序位置，小的排前面。使用者拖曳那一列時才會寫。
+     *
+     * ★ NULL 是有意義的，代表「這一列還沒有被手動排過」。
+     *   查詢時用 NULLS LAST，沒排過的就沿用原本的「收藏時間新的在前」——
+     *   所以這個功能上線那一刻，收藏清單的順序不會有任何變化。
+     *
+     * ★ 允許負數，而且新收藏拿的就是負數（目前最小值減一）。
+     *   這樣「新的排最上面」不必把其他每一列重新編號。
+     */
+    favorite_order INTEGER      NULL,
+
     created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -192,6 +204,16 @@ ALTER TABLE translation_query
 
 ALTER TABLE translation_query
     ADD COLUMN IF NOT EXISTS favorited_at TIMESTAMP;
+
+/*
+ * ★ 補欄位給「已經存在」的資料庫（2026-08-29）。理由同上面兩段。
+ *
+ * 保持 NULL 是正確的初始狀態：代表「這一列還沒有被手動排過」，
+ * 查詢時用 NULLS LAST 讓它沿用原本的「收藏時間新的在前」。
+ * ★ 所以這個欄位補上去之後，你的收藏清單順序不會有任何變化。
+ */
+ALTER TABLE translation_query
+    ADD COLUMN IF NOT EXISTS favorite_order INTEGER;
 
 -- 「最近搜尋」的排序依據。沒有它，每次打開最近清單都會整表掃描後再排序。
 CREATE INDEX IF NOT EXISTS ix_translation_query_last_viewed_at

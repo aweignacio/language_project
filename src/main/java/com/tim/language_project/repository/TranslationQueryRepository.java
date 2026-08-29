@@ -130,7 +130,8 @@ public interface TranslationQueryRepository extends JpaRepository<TranslationQue
 
             WHERE translationQuery.favoritedAt IS NOT NULL
 
-            ORDER BY translationQuery.favoritedAt DESC
+            ORDER BY translationQuery.favoriteOrder ASC NULLS LAST,
+                     translationQuery.favoritedAt DESC
             """)
     List<TranslationSummaryDto> findFavorites();
 
@@ -180,11 +181,57 @@ public interface TranslationQueryRepository extends JpaRepository<TranslationQue
     @Modifying
     @Query("""
             UPDATE TranslationQuery translationQuery
-               SET translationQuery.favoritedAt = :favoritedAt
+               SET translationQuery.favoritedAt  = :favoritedAt,
+                   translationQuery.favoriteOrder = :favoriteOrder
              WHERE translationQuery.id = :id
                AND translationQuery.favoritedAt IS NULL
             """)
-    int markFavorite(@Param("id") Long id, @Param("favoritedAt") LocalDateTime favoritedAt);
+    int markFavorite(@Param("id") Long id,
+                     @Param("favoritedAt") LocalDateTime favoritedAt,
+                     @Param("favoriteOrder") int favoriteOrder);
+
+    /**
+     * 目前收藏中最小的排序序號。全部都還沒排過時回傳 null。
+     *
+     * 新加入的收藏拿「這個值減一」，就會排到最上面。
+     */
+    @Query("""
+            SELECT MIN(translationQuery.favoriteOrder)
+              FROM TranslationQuery translationQuery
+             WHERE translationQuery.favoritedAt IS NOT NULL
+            """)
+    Integer findMinFavoriteOrder();
+
+    /**
+     * 這批 id 裡面有幾筆是真的在收藏中。
+     *
+     * 拖曳排序前用它一次驗證整批，回傳的數字與送來的 id 數量不符就整批拒絕。
+     * ★ 用一句 count 而不是逐筆 existsById —— 後者是 N 趟往返。
+     */
+    @Query("""
+            SELECT COUNT(translationQuery)
+              FROM TranslationQuery translationQuery
+             WHERE translationQuery.id IN :ids
+               AND translationQuery.favoritedAt IS NOT NULL
+            """)
+    long countFavoritedIn(@Param("ids") List<Long> ids);
+
+    /*
+     * 寫入某一列的收藏排序位置。
+     *
+     * ★ 這一支是「一列呼叫一次」，看起來像 N+1，但它與清單組裝那邊的
+     *   N+1 是兩件事：那邊是每次打開清單都跑，這邊只在使用者拖放那一瞬間
+     *   跑一次，而且整批在同一個交易裡，筆數就是收藏的數量（幾十筆）。
+     *   為了它去寫原生 SQL 的 unnest 並不划算。
+     */
+    @Transactional
+    @Modifying
+    @Query("""
+            UPDATE TranslationQuery translationQuery
+               SET translationQuery.favoriteOrder = :favoriteOrder
+             WHERE translationQuery.id = :id
+            """)
+    int updateFavoriteOrder(@Param("id") Long id, @Param("favoriteOrder") int favoriteOrder);
 
     /** 取消收藏。把 favoritedAt 設回 null，該列就自動退出收藏清單。@Transactional 的理由同上。 */
     @Transactional

@@ -25,9 +25,22 @@
       </p>
     }
 
-    <ul class="list__items">
+    @if (reorderFailed()) {
+      <p class="list__hint">順序沒有存起來，已經退回原本的排列。可以再拖一次。</p>
+    }
+
+    <!--
+      cdkDropList 是「可以放東西的容器」，cdkDrag 是「可以拖的東西」。
+      ★ cdkDropListDisabled 讓最近分頁整個關掉拖曳 ——
+        那份清單的順序由「最後查看時間」決定，排了也留不住。
+    -->
+    <ul
+      class="list__items"
+      cdkDropList
+      [cdkDropListDisabled]="!reorderable"
+      (cdkDropListDropped)="drop($event)">
       @for (item of loaded; track item.queryId) {
-        <li class="row">
+        <li class="row" cdkDrag [cdkDragDisabled]="!reorderable">
 
           <!--
             整列可點 → 還原這一筆。
@@ -40,6 +53,23 @@
             <span class="row__thai">{{ item.thaiText }}</span>
             <span class="row__romanization">{{ item.romanization }}</span>
           </button>
+
+          <!--
+            拖曳把手，只有收藏分頁才有。
+            ★ 為什麼不做「整列都能拖」：整列已經是一個 <button>，點下去會還原
+              那筆查詢。整列可拖的話，手指按住想拖跟想點會分不出來，
+              而且在手機上垂直拖曳會跟頁面捲動打架。
+              限定在把手上，兩件事就不會互相干擾。
+          -->
+          @if (reorderable) {
+            <button
+              class="row__handle"
+              type="button"
+              cdkDragHandle
+              [attr.aria-label]="'拖曳調整順序 ' + item.chineseText">
+              ☰
+            </button>
+          }
 
           <div class="row__side">
             <!--

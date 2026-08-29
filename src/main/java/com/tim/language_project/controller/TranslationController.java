@@ -108,6 +108,7 @@ package com.tim.language_project.controller;
  *          TranslationControllerTest.java
  */
 
+import com.tim.language_project.dto.request.FavoriteOrderRequestDto;
 import com.tim.language_project.dto.request.TranslationRequestDto;
 import com.tim.language_project.dto.response.TranslationResponseDto;
 import com.tim.language_project.dto.response.TranslationSegmentDto;
@@ -212,6 +213,24 @@ public class TranslationController {
     @PutMapping("/{queryId}/favorite")
     public ResponseEntity<Void> addFavorite(@PathVariable Long queryId) {
         queryListService.addFavorite(queryId);
+
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 收藏清單拖曳排序後，把新的順序整份存起來。
+     *
+     * ★ 網址是 /favorites/order 而不是 /{queryId}/favorite/order ——
+     *   這一支動到的是「整份清單的順序」，不是某一筆，網址要反映這件事。
+     *
+     * ★ 用 PUT：整份取代，重送一次結果一樣。
+     *   而且它與上面兩支一樣不會呼叫 OpenAI，符合這個類別「動詞區分成本」的規矩。
+     *
+     * @param request 排好的完整 queryId 陣列，第一個排最前面
+     */
+    @PutMapping("/favorites/order")
+    public ResponseEntity<Void> reorderFavorites(@RequestBody FavoriteOrderRequestDto request) {
+        queryListService.reorderFavorites(request.queryIds());
 
         return ResponseEntity.noContent().build();
     }

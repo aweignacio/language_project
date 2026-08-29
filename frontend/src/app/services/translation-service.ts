@@ -220,6 +220,19 @@ export class TranslationService {
   }
 
   /**
+   * 收藏清單拖曳排序後，把新的順序整份送上去。
+   *
+   * 送的是「排好的完整 id 陣列」而不是「把某一筆移到第幾位」——
+   * 前端本來就握有整個陣列，這樣做是冪等的，重送一次結果一樣。
+   *
+   * ★ 陣列的順序就是這支請求的全部意義，不要在中間做任何排序或去重。
+   */
+  reorderFavorites(orderedQueryIds: number[]): Observable<void> {
+    return this.http.put<void>('/api/v1/translations/favorites/order',
+      { queryIds: orderedQueryIds });
+  }
+
+  /**
    * 用 id 還原一筆查詢的完整結果，點清單的一列時用這支。
    *
    * ★ 千萬不要改成「把文字填回輸入框再呼叫 translate()」。

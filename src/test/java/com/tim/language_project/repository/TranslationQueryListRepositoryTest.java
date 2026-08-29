@@ -157,6 +157,47 @@ class TranslationQueryListRepositoryTest {
     }
 
     /*
+     * ═══ 測試三之二：收藏清單依手動排序，沒排過的排最後 ═══════════════════
+     *
+     * 這支驗的是拖曳排序（2026-08-29）在資料庫這一層的排序規則：
+     *
+     *     ORDER BY favorite_order ASC NULLS LAST, favorited_at DESC
+     *
+     * ★ 三筆測試資料是刻意這樣配的：沒有序號的那一筆，收藏時間是最新的。
+     *   排序如果還是舊的「favorited_at DESC」，它會排在第一個 ——
+     *   所以這支測試分得出「真的照序號排」與「碰巧看起來對」。
+     *
+     * ★ NULLS LAST 不可以省。PostgreSQL 的 ASC 預設是 NULLS LAST，
+     *   看起來寫不寫都一樣 —— 但這句是 JPQL，將來換資料庫時預設會反過來，
+     *   而症狀是「沒排過的收藏突然全部跑到最上面」，沒有任何錯誤訊息。
+     */
+    @Test
+    @DisplayName("收藏清單應依 favorite_order 排序且未排序的排最後")
+    void shouldReturnFavoritesOrderedByFavoriteOrder() {
+        TranslationQuery second = newQuery("測試勿刪排序第二", "สอง");
+        second.setFavoritedAt(LocalDateTime.of(2026, 8, 29, 9, 0));
+        second.setFavoriteOrder(1);
+
+        TranslationQuery first = newQuery("測試勿刪排序第一", "หนึ่ง");
+        first.setFavoritedAt(LocalDateTime.of(2026, 8, 29, 8, 0));
+        first.setFavoriteOrder(0);
+
+        // ★ 沒有序號，但收藏時間是三筆裡最新的。照舊排序它會跑到第一個。
+        TranslationQuery unordered = newQuery("測試勿刪排序未排", "ยังไม่เรียง");
+        unordered.setFavoritedAt(LocalDateTime.of(2026, 8, 29, 12, 0));
+
+        translationQueryRepository.saveAndFlush(second);
+        translationQueryRepository.saveAndFlush(first);
+        translationQueryRepository.saveAndFlush(unordered);
+
+        List<TranslationSummaryDto> favorites = translationQueryRepository.findFavorites();
+
+        // 我主張：序號小的在前，沒有序號的排在兩者之後。
+        assertThat(favorites).extracting(TranslationSummaryDto::chineseText)
+                .containsSubsequence("測試勿刪排序第一", "測試勿刪排序第二", "測試勿刪排序未排");
+    }
+
+    /*
      * ═══ 測試四：已收藏的再按一次，收藏時間不可以被覆寫 ═════════════════
      *
      * ★ 覆寫的話收藏清單的排序會莫名其妙跳動 ——
@@ -174,7 +215,7 @@ class TranslationQueryListRepositoryTest {
         TranslationQuery saved = translationQueryRepository.saveAndFlush(query);
 
         int affected = translationQueryRepository.markFavorite(
-                saved.getId(), LocalDateTime.of(2026, 8, 18, 12, 0));
+                saved.getId(), LocalDateTime.of(2026, 8, 18, 12, 0), -1);
 
         // 我主張：一列都沒有被改到（條件裡的 IS NULL 擋下來了）。
         assertThat(affected).isZero();

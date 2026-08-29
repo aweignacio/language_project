@@ -90,6 +90,18 @@ public class TranslationQuery {
     @Column(name = "favorited_at")
     private LocalDateTime favoritedAt;
 
+    /**
+     * 收藏清單的手動排序位置，小的排前面。
+     *
+     * ★ null 代表「還沒有被手動排過」，查詢時排在有序號的後面，
+     *   並沿用原本的「收藏時間新的在前」。
+     *
+     * ★ 可以是負數。新加入的收藏拿「目前最小值減一」，
+     *   這樣排到最上面不必把其他每一列重新編號。
+     */
+    @Column(name = "favorite_order")
+    private Integer favoriteOrder;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 
