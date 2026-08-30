@@ -96,6 +96,7 @@ import { Component, OnInit, inject, input, output, signal } from '@angular/core'
 import { TranslationSummary } from '../../models/translation';
 import { AudioPlayerService } from '../../services/audio-player';
 import { TranslationService } from '../../services/translation-service';
+import { pickShuffleTarget } from './shuffle-pick';
 
 /** 這個清單是哪一種。決定打哪支 API、愛心的樣子，以及空清單時說什麼。 */
 export type QueryListMode = 'recent' | 'favorite';
@@ -136,6 +137,14 @@ export class QueryList implements OnInit {
 
   /** 正在切換收藏中的 queryId，避免連點兩下送出兩個請求。 */
   protected readonly togglingFavorite = signal<ReadonlySet<number>>(new Set());
+
+  /**
+   * 上一次隨機播過的 queryId，用來避免連續抽到同一句。
+   *
+   * ★ 這個不用 signal —— 畫面沒有任何地方會顯示它，
+   *   只有 shufflePlay 自己讀寫。做成 signal 只是多一層沒人訂閱的通知。
+   */
+  private lastShuffledQueryId: number | null = null;
 
   ngOnInit(): void {
     this.load();
@@ -255,9 +264,38 @@ export class QueryList implements OnInit {
     this.restore.emit(item);
   }
 
-  /** 只有收藏分頁能拖曳排序。最近清單的順序由「最後查看時間」決定，排了也留不住。 */
-  protected get reorderable(): boolean {
+  /**
+   * 這是不是收藏分頁。拖曳排序與隨機播放兩個功能都只在收藏分頁出現。
+   *
+   * ★ 最近清單不給拖：它的順序由「最後查看時間」決定，排了也留不住。
+   * ★ 最近清單不給隨機播：那是「剛查過的東西」，隨機聽沒有練習意義。
+   */
+  protected get favoriteMode(): boolean {
     return this.mode() === 'favorite';
+  }
+
+  /** 清單裡有沒有任何一句真的可以播。沒有的話隨機播放鍵要畫成不能按。 */
+  protected get hasPlayableAudio(): boolean {
+    return (this.items() ?? []).some((item) => item.thaiAudioUrl);
+  }
+
+  /**
+   * 隨機播放一句。
+   *
+   * ★ 挑選的邏輯不在這裡，在 shuffle-pick.ts —— 那是純運算，
+   *   分開之後可以不必啟動 Angular 就測完（見該檔的說明）。
+   *   這個方法只負責「記住播了哪一句」和「真的發出聲音」。
+   */
+  protected shufflePlay(): void {
+    const target = pickShuffleTarget(this.items() ?? [], this.lastShuffledQueryId);
+
+    // 一句可播的都沒有。按鈕本來就該是灰的，這裡是第二道保險。
+    if (!target) {
+      return;
+    }
+
+    this.lastShuffledQueryId = target.queryId;
+    this.audioPlayer.play(target.thaiAudioUrl);
   }
 
   /**

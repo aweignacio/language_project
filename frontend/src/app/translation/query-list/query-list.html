@@ -30,6 +30,23 @@
     }
 
     <!--
+      隨機播放。只有收藏分頁、而且清單裡有東西的時候才出現。
+
+      ★ 一句有音檔的都沒有時，按鈕是「灰的不能按」而不是「消失」——
+        消失的話你會以為功能不見了；灰的至少看得出「現在不能用」。
+        （會發生在所有收藏的音檔當初都合成失敗的情況，很少見。）
+    -->
+    @if (favoriteMode && loaded.length) {
+      <button
+        class="list__shuffle"
+        type="button"
+        [disabled]="!hasPlayableAudio"
+        (click)="shufflePlay()">
+        <span aria-hidden="true">🔀</span> 隨機播放
+      </button>
+    }
+
+    <!--
       cdkDropList 是「可以放東西的容器」，cdkDrag 是「可以拖的東西」。
       ★ cdkDropListDisabled 讓最近分頁整個關掉拖曳 ——
         那份清單的順序由「最後查看時間」決定，排了也留不住。
@@ -37,10 +54,10 @@
     <ul
       class="list__items"
       cdkDropList
-      [cdkDropListDisabled]="!reorderable"
+      [cdkDropListDisabled]="!favoriteMode"
       (cdkDropListDropped)="drop($event)">
       @for (item of loaded; track item.queryId) {
-        <li class="row" cdkDrag [cdkDragDisabled]="!reorderable">
+        <li class="row" cdkDrag [cdkDragDisabled]="!favoriteMode">
 
           <!--
             整列可點 → 還原這一筆。
@@ -61,7 +78,7 @@
               而且在手機上垂直拖曳會跟頁面捲動打架。
               限定在把手上，兩件事就不會互相干擾。
           -->
-          @if (reorderable) {
+          @if (favoriteMode) {
             <button
               class="row__handle"
               type="button"

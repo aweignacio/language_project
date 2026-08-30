@@ -150,6 +150,38 @@
 }
 
 /*
+ * 隨機播放鍵。橫跨整個清單寬度，因為它作用在「整份清單」而不是某一列 ——
+ * 跟每一列右邊那些小圓鍵是不同層級的東西，形狀上要看得出來。
+ */
+.list__shuffle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-bottom: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid var(--gold-600);
+  border-radius: 4px;
+  background: none;
+  color: var(--gold-400);
+  font-family: var(--font-serif);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.list__shuffle:active {
+  background: rgb(230 198 126 / 8%);
+}
+
+/* 一句有音檔的都沒有。看得出來「現在不能用」，而不是整顆消失 */
+.list__shuffle:disabled {
+  border-color: var(--line);
+  color: var(--ivory-faint);
+  cursor: default;
+}
+
+/*
  * ══════════════════════════════════════════════════════════════════════
  *  拖曳排序（只有收藏分頁會用到）
  * ══════════════════════════════════════════════════════════════════════
