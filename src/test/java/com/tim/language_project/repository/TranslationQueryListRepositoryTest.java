@@ -100,6 +100,19 @@ class TranslationQueryListRepositoryTest {
      * 兩件事一起驗：
      *   ① 沒有 last_viewed_at 的列（2026-08-18 之前的舊資料）不可以混進來
      *   ② 排序是「時間新的在前」
+     *
+     * ★ 頁數刻意開到 1000，不是 20（2026-08-31 修）。
+     *
+     *   這支測試的假資料時間寫死在 2026-08-18。原本傳 20，等於在賭
+     *   「開發用的資料庫幾乎是空的，所以假資料排得進前 20 名」——
+     *   那個賭注在把正式資料抓回本機之後就輸了：真實資料有 126 筆，
+     *   第 20 名的時間是 8/28，假資料差了十天，直接被擠出去，
+     *   於是這支測試在程式完全正確的情況下紅燈。
+     *
+     *   ★ 這裡本來就不該驗「20 筆上限」。那是產品決策，寫在 Service，
+     *     由 QueryListServiceTest.shouldLimitRecentToTwenty 守。
+     *     這一層只該驗「排序對不對、沒有時間的有沒有被濾掉」，
+     *     而那兩件事跟結果有幾筆無關。
      */
     @Test
     @DisplayName("最近清單應只含有 last_viewed_at 的列且新的在前")
@@ -118,7 +131,7 @@ class TranslationQueryListRepositoryTest {
         translationQueryRepository.saveAndFlush(legacy);
 
         List<TranslationSummaryDto> recent =
-                translationQueryRepository.findRecent(PageRequest.of(0, 20));
+                translationQueryRepository.findRecent(PageRequest.of(0, 1000));
 
         // 我主張：新的排在舊的前面。
         assertThat(recent).extracting(TranslationSummaryDto::chineseText)
