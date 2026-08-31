@@ -56,6 +56,21 @@
           (click)="replay()">
           再聽一次
         </button>
+
+        <!--
+          剛剛抽到的是哪一句？收藏一多，光用聽的找不到。
+          按下去把那一列捲到畫面中央並閃一下金框。
+
+          ★ 跟「再聽一次」共用 canReplay —— 兩顆找的是同一筆，
+            條件分開寫遲早會變成「這顆亮、那顆灰」的怪狀態。
+        -->
+        <button
+          class="list__shuffle list__locate"
+          type="button"
+          [disabled]="!canReplay"
+          (click)="locate()">
+          定位
+        </button>
       </div>
     }
 
@@ -70,8 +85,13 @@
       [cdkDropListDisabled]="!favoriteMode"
       (cdkDropListDropped)="drop($event)">
       @for (item of loaded; track item.queryId) {
+        <!--
+          ★ data-query-id 是給「定位」用的門牌號碼 —— 它要在這一堆 <li>
+            裡面找出某一筆真正的那個元素，才有辦法叫瀏覽器捲到它。
+        -->
         <li
           class="row"
+          [attr.data-query-id]="item.queryId"
           [class.row--played]="isPlayed(item)"
           cdkDrag
           [cdkDragDisabled]="!favoriteMode">

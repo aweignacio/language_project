@@ -150,10 +150,11 @@
 }
 
 /*
- * 「隨機播放」與「再聽一次」並排。
+ * 「隨機播放」「再聽一次」「定位」並排。
  *
- * ★ 兩顆各佔一半（flex: 1），不照文字長短分配 —— 寬度固定，
+ * ★ 前兩顆各佔一半剩餘寬度（flex: 1），不照文字長短分配 —— 寬度固定，
  *   位置就固定，手指按久了會記得住，不必每次看。
+ *   第三顆是輔助動作，只佔文字需要的寬度（見 .list__locate）。
  */
 .list__controls {
   display: flex;
@@ -189,6 +190,40 @@
   border-color: var(--line);
   color: var(--ivory-faint);
   cursor: default;
+}
+
+/*
+ * 定位鍵。只佔文字需要的寬度，不跟前兩顆分寬度（flex: 0 0 auto）——
+ * 它是輔助動作，兩顆主要的鍵才該把版面撐滿。
+ */
+.list__locate {
+  flex: 0 0 auto;
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+}
+
+/*
+ * 被定位到的那一列閃一下。
+ *
+ * ★ 只有顏色在變，沒有位移也沒有縮放 —— 開了「減少動態」設定的人
+ *   也能安全地看，所以這段動畫不必為那個設定關掉。
+ *   會頭暈的是捲動的滑行，那部分在 query-list.ts 裡處理。
+ */
+@keyframes row-highlight {
+  from {
+    background: rgb(230 198 126 / 16%);
+    box-shadow: inset 0 0 0 1px var(--gold-600);
+  }
+
+  to {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+
+.row--highlight {
+  border-radius: 4px;
+  animation: row-highlight 2s ease-out;
 }
 
 /*

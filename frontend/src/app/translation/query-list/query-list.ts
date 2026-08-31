@@ -92,6 +92,10 @@
  *      shuffle-pick.ts 的 findReplayTarget）。你把那一句取消收藏之後
  *      就找不到了，按鈕自動變灰，不會播出清單上已經沒有的句子。
  *
+ *    第三顆「定位」把那一列捲到畫面中央並閃一下金框，用來回答
+ *    「我剛剛聽到的是哪一句」—— 收藏一多，光聽是找不到的。
+ *    它跟「再聽一次」找的是同一筆，所以兩顆鍵一起亮、一起灰。
+ *
  *    ★ 切到別的分頁再切回來，進度會歸零。這個元件被 @if 控制，
  *      切走就整個銷毀，signal 跟著沒了 —— 不必特地寫程式去清。
  *
@@ -114,7 +118,7 @@
  */
 
 import { CdkDrag, CdkDragDrop, CdkDragHandle, CdkDropList, moveItemInArray } from '@angular/cdk/drag-drop';
-import { Component, OnInit, inject, input, output, signal } from '@angular/core';
+import { Component, ElementRef, OnInit, inject, input, output, signal } from '@angular/core';
 import { TranslationSummary } from '../../models/translation';
 import { AudioPlayerService } from '../../services/audio-player';
 import { TranslationService } from '../../services/translation-service';
@@ -134,6 +138,15 @@ export class QueryList implements OnInit {
   private readonly translationService = inject(TranslationService);
 
   private readonly audioPlayer = inject(AudioPlayerService);
+
+  /**
+   * 這個元件自己的那塊 DOM。「定位」要在裡面找出某一列真正的那個 <li>，
+   * 才有辦法叫瀏覽器捲到它。
+   *
+   * ★ 找的範圍限定在自己這塊，不是整份文件 —— 「最近」與「收藏」共用
+   *   這個元件，用整份文件去找有機會撈到另一個分頁殘留的同 id 元素。
+   */
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   /** 由外面指定這是「最近」還是「收藏」。元件自己不會改它。 */
   readonly mode = input.required<QueryListMode>();
@@ -366,6 +379,49 @@ export class QueryList implements OnInit {
     }
 
     this.audioPlayer.play(target.thaiAudioUrl);
+  }
+
+  /**
+   * 把剛剛隨機抽到的那一列捲到畫面中央，並讓它閃一下金框。
+   *
+   * ★ 為什麼直接動 DOM 的 class，而不是用 signal 綁在樣板上：
+   *   閃一下是「一次性的動畫」，不是一個要維持的狀態。用 signal 的話，
+   *   連按兩次時 class 從頭到尾都在，瀏覽器認定「這個動畫已經在跑了」，
+   *   第二次按完全不會閃。下面那行強制重算就是在解決這件事，
+   *   而它必須夾在拿掉與加回去之間同一個時間點做 —— 中間隔著 Angular
+   *   的畫面更新就辦不到了。
+   */
+  protected locate(): void {
+    const target = findReplayTarget(this.items() ?? [], this.lastShuffledQueryId());
+
+    // 還沒抽過，或那一句已經被取消收藏。按鈕本來就該是灰的，這裡是第二道保險。
+    if (!target) {
+      return;
+    }
+
+    const row = this.host.nativeElement
+      .querySelector<HTMLElement>(`[data-query-id="${target.queryId}"]`);
+
+    if (!row) {
+      return;
+    }
+
+    // ★ 尊重系統的「減少動態」設定。開這個設定的人是因為畫面滑行會頭暈，
+    //   這種情況下直接跳到位比較好。淡出的顏色變化不算動態，保留。
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    row.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+
+    row.classList.remove('row--highlight');
+    // 讀一下版面數值，逼瀏覽器立刻重算 —— 動畫才會從頭開始播（見上面說明）。
+    void row.offsetWidth;
+    row.classList.add('row--highlight');
+
+    // 播完自己拿掉，這樣這一列不會一直帶著一個已經結束的動畫 class。
+    row.addEventListener(
+      'animationend',
+      () => row.classList.remove('row--highlight'),
+      { once: true },
+    );
   }
 
   /**
