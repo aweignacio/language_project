@@ -30,20 +30,33 @@
     }
 
     <!--
-      隨機播放。只有收藏分頁、而且清單裡有東西的時候才出現。
+      隨機播放與再聽一次。只有收藏分頁、而且清單裡有東西的時候才出現。
 
-      ★ 一句有音檔的都沒有時，按鈕是「灰的不能按」而不是「消失」——
+      ★ 不能用的時候是「灰的不能按」而不是「消失」——
         消失的話你會以為功能不見了；灰的至少看得出「現在不能用」。
-        （會發生在所有收藏的音檔當初都合成失敗的情況，很少見。）
+        兩顆鍵一直並排在原位，手指也才背得起來位置。
+
+      隨機播放變灰：一句有音檔的都沒有（所有收藏的音檔當初都合成失敗，很少見）
+      再聽一次變灰：還沒抽過任何一句，或剛剛那一句已經被你取消收藏
     -->
     @if (favoriteMode && loaded.length) {
-      <button
-        class="list__shuffle"
-        type="button"
-        [disabled]="!hasPlayableAudio"
-        (click)="shufflePlay()">
-        隨機播放
-      </button>
+      <div class="list__controls">
+        <button
+          class="list__shuffle"
+          type="button"
+          [disabled]="!hasPlayableAudio"
+          (click)="shufflePlay()">
+          隨機播放
+        </button>
+
+        <button
+          class="list__shuffle"
+          type="button"
+          [disabled]="!canReplay"
+          (click)="replay()">
+          再聽一次
+        </button>
+      </div>
     }
 
     <!--
@@ -57,7 +70,11 @@
       [cdkDropListDisabled]="!favoriteMode"
       (cdkDropListDropped)="drop($event)">
       @for (item of loaded; track item.queryId) {
-        <li class="row" cdkDrag [cdkDragDisabled]="!favoriteMode">
+        <li
+          class="row"
+          [class.row--played]="isPlayed(item)"
+          cdkDrag
+          [cdkDragDisabled]="!favoriteMode">
 
           <!--
             整列可點 → 還原這一筆。
@@ -89,6 +106,17 @@
           }
 
           <div class="row__side">
+            <!--
+              這一輪隨機播放已經聽過這一句了。
+
+              ★ 為什麼不只是把整列調淡就好：手機在太陽底下看不出深淺，
+                色弱的人也讀不到顏色的差別。多一個看得懂的詞，
+                任何情況下都能確定「這句聽過了」。
+            -->
+            @if (isPlayed(item)) {
+              <span class="row__played">已播</span>
+            }
+
             <!--
               這一列自己的性別。
               ★ 點下去不會改動畫面上方的性別設定 —— 那是一個持久設定，

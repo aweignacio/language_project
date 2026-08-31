@@ -73,6 +73,28 @@
  *      整列可拖的話按住想拖跟想點分不出來，而且在手機上垂直拖曳會跟
  *      頁面捲動打架。把手的 CSS 有一行 touch-action: none 就是在處理這件事。
  *
+ * ── 第 4.6 步｜你按下上方的「隨機播放」（只有收藏分頁有）────────────────
+ *
+ *    從「有音檔、而且這一輪還沒聽過」的句子裡抽一句播，抽中的那一列
+ *    標上「已播」。收藏 12 句就按 12 次聽完一輪，中間不會重複；
+ *    最後一句播完的當下，所有標記靜靜地一起消失，下一次按是新的一輪。
+ *
+ *    ★ 挑選與「這一輪走完了沒」的判斷都不在這裡，在 shuffle-pick.ts。
+ *      這個元件只負責記住結果、畫上小標、真的發出聲音。
+ *
+ *    ★ 你自己點某一列的 ▶ 不算進這一輪 —— 那是「我現在就想聽這句」，
+ *      跟隨機播放的進度是兩回事，混在一起會讓一輪莫名其妙提早結束。
+ *
+ *    旁邊那顆「再聽一次」把剛剛抽到的那一句再播一遍。它同樣不算進進度 ——
+ *    重聽是「同一句再放一次」，不是新的一次抽選。
+ *
+ *    ★ 元件只記剛剛那一句的 queryId，播的時候才回頭到清單裡找（見
+ *      shuffle-pick.ts 的 findReplayTarget）。你把那一句取消收藏之後
+ *      就找不到了，按鈕自動變灰，不會播出清單上已經沒有的句子。
+ *
+ *    ★ 切到別的分頁再切回來，進度會歸零。這個元件被 @if 控制，
+ *      切走就整個銷毀，signal 跟著沒了 —— 不必特地寫程式去清。
+ *
  * ── 第 5 步｜你點的是整列（不是 ▶ 也不是 ♥ 也不是 ☰）────────────────────
  *
  *    發出 restore 事件把那一列交給 App，由 App 切到「查詢」分頁並還原。
@@ -96,7 +118,7 @@ import { Component, OnInit, inject, input, output, signal } from '@angular/core'
 import { TranslationSummary } from '../../models/translation';
 import { AudioPlayerService } from '../../services/audio-player';
 import { TranslationService } from '../../services/translation-service';
-import { pickShuffleTarget } from './shuffle-pick';
+import { findReplayTarget, pickShuffleTarget } from './shuffle-pick';
 
 /** 這個清單是哪一種。決定打哪支 API、愛心的樣子，以及空清單時說什麼。 */
 export type QueryListMode = 'recent' | 'favorite';
@@ -139,12 +161,24 @@ export class QueryList implements OnInit {
   protected readonly togglingFavorite = signal<ReadonlySet<number>>(new Set());
 
   /**
-   * 上一次隨機播過的 queryId，用來避免連續抽到同一句。
+   * 這一輪隨機播放已經聽過的 queryId。整輪聽完會自動變回空陣列。
    *
-   * ★ 這個不用 signal —— 畫面沒有任何地方會顯示它，
-   *   只有 shufflePlay 自己讀寫。做成 signal 只是多一層沒人訂閱的通知。
+   * ★ 這個要用 signal —— 每一列的「已播」小標是看它畫的，
+   *   換一份新陣列畫面才會跟著重畫（zoneless 模式）。
    */
-  private lastShuffledQueryId: number | null = null;
+  protected readonly playedQueryIds = signal<readonly number[]>([]);
+
+  /**
+   * 上一次隨機播過的 queryId。兩個用途：避免連續抽到同一句、「再聽一次」要播它。
+   *
+   * ★ 已經有 playedQueryIds 了為什麼還要這個：一輪播完時那份名單會被清空，
+   *   清空的瞬間「剛剛播的是哪一句」就沒人記得了，新一輪第一句可能立刻
+   *   又抽到它。這個欄位跨輪保存那一句。
+   *
+   * ★ 這個要用 signal —— 「再聽一次」那顆鍵的亮暗是看它算出來的，
+   *   換值時畫面要跟著重畫（zoneless 模式）。
+   */
+  private readonly lastShuffledQueryId = signal<number | null>(null);
 
   ngOnInit(): void {
     this.load();
@@ -279,22 +313,58 @@ export class QueryList implements OnInit {
     return (this.items() ?? []).some((item) => item.thaiAudioUrl);
   }
 
+  /** 這一列這一輪被隨機抽到過了嗎（用來畫「已播」小標）。 */
+  protected isPlayed(item: TranslationSummary): boolean {
+    return this.playedQueryIds().includes(item.queryId);
+  }
+
   /**
    * 隨機播放一句。
    *
    * ★ 挑選的邏輯不在這裡，在 shuffle-pick.ts —— 那是純運算，
    *   分開之後可以不必啟動 Angular 就測完（見該檔的說明）。
-   *   這個方法只負責「記住播了哪一句」和「真的發出聲音」。
+   *   這個方法只負責「記住結果」和「真的發出聲音」。
+   *
+   * ★ 已播名單整份接回來，不是自己 push 進去 —— 一輪走完時
+   *   shuffle-pick 回的是空陣列，接回來畫面上的小標就一起消失了。
    */
   protected shufflePlay(): void {
-    const target = pickShuffleTarget(this.items() ?? [], this.lastShuffledQueryId);
+    const picked = pickShuffleTarget(
+      this.items() ?? [],
+      this.playedQueryIds(),
+      this.lastShuffledQueryId(),
+    );
 
     // 一句可播的都沒有。按鈕本來就該是灰的，這裡是第二道保險。
+    if (!picked.target) {
+      return;
+    }
+
+    this.lastShuffledQueryId.set(picked.target.queryId);
+    this.playedQueryIds.set(picked.playedQueryIds);
+    this.audioPlayer.play(picked.target.thaiAudioUrl);
+  }
+
+  /** 現在有沒有「剛剛那一句」可以重聽。沒有的話「再聽一次」是灰的。 */
+  protected get canReplay(): boolean {
+    return findReplayTarget(this.items() ?? [], this.lastShuffledQueryId()) !== null;
+  }
+
+  /**
+   * 把剛剛隨機抽到的那一句再播一遍。
+   *
+   * ★ 什麼都不記 —— 不加進已播名單、也不改 lastShuffledQueryId。
+   *   重聽是「同一句再放一次」，不是新的一次抽選，
+   *   算進進度的話這一輪會莫名其妙變短。
+   */
+  protected replay(): void {
+    const target = findReplayTarget(this.items() ?? [], this.lastShuffledQueryId());
+
+    // 還沒抽過，或那一句已經被取消收藏。按鈕本來就該是灰的，這裡是第二道保險。
     if (!target) {
       return;
     }
 
-    this.lastShuffledQueryId = target.queryId;
     this.audioPlayer.play(target.thaiAudioUrl);
   }
 

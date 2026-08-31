@@ -150,15 +150,26 @@
 }
 
 /*
- * 隨機播放鍵。橫跨整個清單寬度，因為它作用在「整份清單」而不是某一列 ——
+ * 「隨機播放」與「再聽一次」並排。
+ *
+ * ★ 兩顆各佔一半（flex: 1），不照文字長短分配 —— 寬度固定，
+ *   位置就固定，手指按久了會記得住，不必每次看。
+ */
+.list__controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/*
+ * 這兩顆鍵作用在「整份清單」而不是某一列 ——
  * 跟每一列右邊那些小圓鍵是不同層級的東西，形狀上要看得出來。
  */
 .list__shuffle {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  margin-bottom: 0.75rem;
+  flex: 1;
   padding: 0.7rem;
   border: 1px solid var(--gold-600);
   border-radius: 4px;
@@ -173,11 +184,38 @@
   background: rgb(230 198 126 / 8%);
 }
 
-/* 一句有音檔的都沒有。看得出來「現在不能用」，而不是整顆消失 */
+/* 現在不能用（沒有任何音檔／還沒抽過）。看得出來，而不是整顆消失 */
 .list__shuffle:disabled {
   border-color: var(--line);
   color: var(--ivory-faint);
   cursor: default;
+}
+
+/*
+ * 這一輪隨機播放已經聽過的那一列。
+ *
+ * ★ 刻意用兩個管道同時標示：文字整個淡一階，再加一個「已播」小標。
+ *   只靠淡化的話，手機在太陽底下看不出深淺，色弱的人也讀不到差別。
+ *
+ * ★ 淡的是 .row__main（文字），不是整個 .row —— 愛心與播放鍵要保持
+ *   原本的清楚度，聽過的句子照樣要能收藏、能再點來聽。
+ */
+.row--played .row__main {
+  opacity: 0.45;
+}
+
+/*
+ * 「已播」小標。金色代表「這件事完成了」，與播放鍵亮金色是同一套語言；
+ * 底色只有 12% 濃度，是為了讓它看得見但不要比還沒聽的句子更搶眼。
+ */
+.row__played {
+  padding: 0.12rem 0.4rem;
+  border-radius: 2px;
+  background: rgb(230 198 126 / 12%);
+  color: var(--gold-400);
+  font-family: var(--font-serif);
+  font-size: 0.7rem;
+  white-space: nowrap;
 }
 
 /*
